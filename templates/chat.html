@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>リアルタイムおーまいチャット</title>
+  </head>
+
+  <style>
+    #chat {
+      text-align: left;
+      color: #ffffff;
+      background: #113131;
+      width: 400px;
+      min-height: 300px;
+      padding: 10px;
+      font-family: 'Lucida Grande', 'Hiragino Kaku Gothic ProN', 'ヒラギノ角ゴ ProN W3', 'Meiryo', 'メイリオ', sans-serif;
+      font-size: small;
+    }
+  </style>
+
+  <body>
+    <div>
+      <h3>おーまいファッキンkawaii胸毛チャット</h3>
+      <pre id="chat"></pre>
+      <label id="title"></label>
+      <input placeholder="say something" id="text" type="text" />
+      <p><a href="/logout">ログアウト</a></p>
+    </div>
+
+    <script>
+      // websocketコネクション作成
+      var ws = new WebSocket("ws://" + window.location.host + "/ws");
+
+      // ユーザー名
+
+      // 現在時刻を取得
+      var now = function () {
+        return new Date().toLocaleString();
+      };
+
+      // サーバーから他のユーザーのメッセージが送られてきた際に、チャット画面に表示させる
+      ws.onmessage = function (msg) {
+        console.log(msg);
+        var line = now() + " : " + msg.data + "\n";
+        chat.innerText += line;
+      };
+
+      // 入力フォームにテキストを入力してEnterキーが押された時、入力内容をサーバーへ送信する
+      text.addEventListener("keypress", function (e) {
+        if (e.key === "Enter" && text.value !== "") {
+          ws.send(text.value);
+          text.value = ""; // テキストエリアをリセット
+        }
+      });
+    </script>
+  </body>
+</html>
