@@ -37,6 +37,13 @@
       font-weight: bold;
       margin-bottom: 6px;
     }
+    #typing-indicator {
+      color: #aaaaaa;
+      font-style: italic;
+      font-size: small;
+      min-height: 18px; /* 表示・非表示でレイアウトがずれないよう高さを確保 */
+      margin: 2px 0;
+    }
   </style>
 
   <body>
@@ -44,6 +51,8 @@
       <h3>リアルタイムチャット</h3>
       <p id="online-count">オンライン: --人</p>
       <div id="messages"></div>
+      <!-- タイピングインジケーター: 誰かが入力中の時だけ文字が表示される -->
+      <p id="typing-indicator"></p>
       <input placeholder="say something" id="text" type="text" />
       <p><a href="/logout">ログアウト</a></p>
     </div>
@@ -53,6 +62,24 @@
 
       // 自分のユーザーID（サーバーから "me" メッセージで受け取って保存する）
       var currentUserID = null;
+
+      // 現在入力中のユーザーを管理するオブジェクト { userID: username, ... }
+      // 複数人が同時に入力中でも対応できるようにオブジェクトで管理する
+      var typingUsers = {};
+
+      // typingUsersの内容を "alice, bob が入力中..." の形式で表示する
+      function updateTypingIndicator() {
+        var names = Object.values(typingUsers); // オブジェクトの値（ユーザー名）だけ配列で取り出す
+        var indicator = document.getElementById("typing-indicator");
+        if (names.length === 0) {
+          indicator.innerText = ""; // 誰も入力中でなければ空にする
+        } else {
+          indicator.innerText = names.join(", ") + " が入力中...";
+        }
+      }
+
+      // 2秒後に stopTyping を送るタイマー（キー入力のたびにリセットする）
+      var typingTimer = null;
 
       // メッセージをDOMに追加する関数
       // id: DBのメッセージID, content: 本文, userID: 送信者ID, username: 送信者名, createdAt: 投稿時刻
@@ -94,7 +121,21 @@
             "オンライン: " + data.count + "人";
 
         } else if (data.type === "chat") {
+          // メッセージが届いたらその人のタイピング表示を消す（送信完了したから）
+          delete typingUsers[data.userID];
+          updateTypingIndicator();
           addMessage(data.id, data.content, data.userID, data.username, data.createdAt);
+
+        } else if (data.type === "typing") {
+          // 自分自身のタイピングは表示しない（自分は自分が打っているとわかるから）
+          if (data.userID !== currentUserID) {
+            typingUsers[data.userID] = data.username; // キーをuserIDにして上書きで管理
+            updateTypingIndicator();
+          }
+
+        } else if (data.type === "stopTyping") {
+          delete typingUsers[data.userID]; // そのユーザーを入力中リストから削除
+          updateTypingIndicator();
 
         } else if (data.type === "delete") {
           // data-id属性が一致するDOM要素を探して削除する
@@ -103,9 +144,24 @@
         }
       };
 
+      // inputイベント: テキストが変化するたびに発火（keypress より幅広く検知できる）
+      text.addEventListener("input", function () {
+        // typing を送信（サーバーが全員に中継する）
+        ws.send(JSON.stringify({ type: "typing" }));
+
+        // 既存タイマーをリセットして2秒後に stopTyping を送る
+        // キーを打ち続ける限りタイマーは延長され、止まったら2秒後に発火する
+        clearTimeout(typingTimer);
+        typingTimer = setTimeout(function () {
+          ws.send(JSON.stringify({ type: "stopTyping" }));
+        }, 2000);
+      });
+
       text.addEventListener("keypress", function (e) {
         if (e.key === "Enter" && text.value !== "") {
-          // チャットメッセージもJSON形式で送るように変更
+          // Enter を押したら即座に stopTyping → タイマーが残っていてもキャンセル
+          clearTimeout(typingTimer);
+          ws.send(JSON.stringify({ type: "stopTyping" }));
           ws.send(JSON.stringify({ type: "chat", content: text.value }));
           text.value = "";
         }
