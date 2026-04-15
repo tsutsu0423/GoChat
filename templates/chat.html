@@ -55,14 +55,14 @@
       var currentUserID = null;
 
       // メッセージをDOMに追加する関数
-      // id: DBのメッセージID, content: 本文, userID: 送信者ID, createdAt: 投稿時刻
-      function addMessage(id, content, userID, createdAt) {
+      // id: DBのメッセージID, content: 本文, userID: 送信者ID, username: 送信者名, createdAt: 投稿時刻
+      function addMessage(id, content, userID, username, createdAt) {
         var div = document.createElement("div");
         div.className = "message";
         div.setAttribute("data-id", id); // data-id属性にDBのIDを入れておく（削除時に特定するため）
 
         var text = document.createElement("span");
-        text.innerText = createdAt + " : " + content; // サーバーから受け取った時刻を使う
+        text.innerText = createdAt + " [" + username + "] : " + content;
         div.appendChild(text);
 
         // 自分のメッセージにだけ削除ボタンを追加する
@@ -94,7 +94,7 @@
             "オンライン: " + data.count + "人";
 
         } else if (data.type === "chat") {
-          addMessage(data.id, data.content, data.userID, data.createdAt);
+          addMessage(data.id, data.content, data.userID, data.username, data.createdAt);
 
         } else if (data.type === "delete") {
           // data-id属性が一致するDOM要素を探して削除する

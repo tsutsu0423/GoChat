@@ -20,10 +20,11 @@ var mu sync.Mutex
 var broadcast = make(chan BroadcastMsg)
 
 // BroadcastMsg はbroadcastチャンネルで運ぶデータ
-// チャットの文字列だけでなく、誰が送ったか（UserID）も一緒に持つ
+// チャットの文字列だけでなく、誰が送ったか（UserID・Username）も一緒に持つ
 type BroadcastMsg struct {
-	Content string
-	UserID  uint
+	Content  string
+	UserID   uint
+	Username string
 }
 
 // WSMessage はWebSocketでやり取りするJSONメッセージの共通フォーマット
@@ -33,6 +34,7 @@ type WSMessage struct {
 	ID        uint   `json:"id,omitempty"`        // メッセージID（削除時に使う）
 	Content   string `json:"content,omitempty"`   // チャット本文
 	UserID    uint   `json:"userID,omitempty"`    // 送信者のユーザーID
+	Username  string `json:"username,omitempty"`  // 送信者のユーザー名（表示用）
 	Count     int    `json:"count,omitempty"`     // オンライン人数
 	CreatedAt string `json:"createdAt,omitempty"` // 投稿時刻（DBの保存時刻をそのまま文字列で渡す）
 }
@@ -71,6 +73,10 @@ func main() {
 			session := sessions.Default(c)
 			currentUserID := session.Get("userID").(uint)
 
+			// DBからユーザー名を取得（メッセージに添えて表示するため）
+			var currentUser User
+			db.First(&currentUser, currentUserID)
+
 			mu.Lock()
 			clients[conn] = true
 			mu.Unlock()
@@ -98,7 +104,8 @@ func main() {
 					ID:        m.ID,
 					Content:   m.Content,
 					UserID:    m.UserID,
-					CreatedAt: m.CreatedAt.Format("2006/01/02 15:04:05"), // DBの投稿時刻を文字列に変換
+					Username:  m.Username,
+					CreatedAt: m.CreatedAt.Format("2006/01/02 15:04:05"),
 				})
 				conn.WriteMessage(websocket.TextMessage, msg)
 			}
@@ -119,7 +126,7 @@ func main() {
 				switch incoming.Type {
 				case "chat":
 					// チャットメッセージ → broadcastに流してhandleMessageへ
-					broadcast <- BroadcastMsg{Content: incoming.Content, UserID: currentUserID}
+					broadcast <- BroadcastMsg{Content: incoming.Content, UserID: currentUserID, Username: currentUser.Username}
 				case "delete":
 					// 削除リクエスト → 自分のメッセージか確認してDB削除＆全員に通知
 					handleDelete(incoming.ID, currentUserID)
@@ -174,8 +181,8 @@ func handleMessage() {
 	for {
 		bm := <-broadcast
 
-		// DBに保存（UserIDも一緒に保存する）
-		chatMsg := ChatMessage{Content: bm.Content, UserID: bm.UserID}
+		// DBに保存（UserID・Usernameも一緒に保存する）
+		chatMsg := ChatMessage{Content: bm.Content, UserID: bm.UserID, Username: bm.Username}
 		db.Create(&chatMsg)
 
 		// DB保存後のID・CreatedAtを含めてJSONを作る
@@ -185,6 +192,7 @@ func handleMessage() {
 			ID:        chatMsg.ID,
 			Content:   bm.Content,
 			UserID:    bm.UserID,
+			Username:  bm.Username,
 			CreatedAt: chatMsg.CreatedAt.Format("2006/01/02 15:04:05"),
 		})
 
