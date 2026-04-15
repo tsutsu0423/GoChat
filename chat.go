@@ -179,6 +179,17 @@ func handleDelete(msgID uint, currentUserID uint) {
 	mu.Unlock()
 }
 
+// broadcastTyping はタイピング状態を全クライアントに中継する
+// サーバーは状態を保存せず、受け取ったイベントをそのまま全員に流すだけ
+func broadcastTyping(msgType string, userID uint, username string) {
+	msg, _ := json.Marshal(WSMessage{Type: msgType, UserID: userID, Username: username})
+	mu.Lock()
+	for client := range clients {
+		client.WriteMessage(websocket.TextMessage, msg)
+	}
+	mu.Unlock()
+}
+
 // handleMessage はbroadcastチャンネルからメッセージを受け取り全員に転送する
 func handleMessage() {
 	for {
