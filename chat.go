@@ -130,6 +130,9 @@ func main() {
 				case "delete":
 					// 削除リクエスト → 自分のメッセージか確認してDB削除＆全員に通知
 					handleDelete(incoming.ID, currentUserID)
+				case "typing", "stopTyping":
+					// タイピング状態を全員にブロードキャスト（サーバーは状態を持たず中継するだけ）
+					broadcastTyping(incoming.Type, currentUserID, currentUser.Username)
 				}
 			}
 		})
