@@ -7,7 +7,7 @@
   </head>
 
   <style>
-    #chat {
+    #messages {
       text-align: left;
       color: #ffffff;
       background: #113131;
@@ -17,40 +17,97 @@
       font-family: 'Lucida Grande', 'Hiragino Kaku Gothic ProN', 'ヒラギノ角ゴ ProN W3', 'Meiryo', 'メイリオ', sans-serif;
       font-size: small;
     }
+    .message {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 2px 0;
+    }
+    .delete-btn {
+      background: none;
+      border: none;
+      color: #e74c3c;
+      cursor: pointer;
+      font-size: 12px;
+      margin-left: 8px;
+      flex-shrink: 0;
+    }
+    #online-count {
+      color: #2ecc71;
+      font-weight: bold;
+      margin-bottom: 6px;
+    }
   </style>
 
   <body>
     <div>
-      <h3>リアルタイムチャット１</h3>
-      <pre id="chat"></pre>
-      <label id="title"></label>
+      <h3>リアルタイムチャット</h3>
+      <p id="online-count">オンライン: --人</p>
+      <div id="messages"></div>
       <input placeholder="say something" id="text" type="text" />
       <p><a href="/logout">ログアウト</a></p>
     </div>
 
     <script>
-      // websocketコネクション作成
       var ws = new WebSocket("ws://" + window.location.host + "/ws");
 
-      // ユーザー名
+      // 自分のユーザーID（サーバーから "me" メッセージで受け取って保存する）
+      var currentUserID = null;
 
-      // 現在時刻を取得
-      var now = function () {
-        return new Date().toLocaleString();
-      };
+      // メッセージをDOMに追加する関数
+      // id: DBのメッセージID, content: 本文, userID: 送信者ID, createdAt: 投稿時刻
+      function addMessage(id, content, userID, createdAt) {
+        var div = document.createElement("div");
+        div.className = "message";
+        div.setAttribute("data-id", id); // data-id属性にDBのIDを入れておく（削除時に特定するため）
 
-      // サーバーから他のユーザーのメッセージが送られてきた際に、チャット画面に表示させる
+        var text = document.createElement("span");
+        text.innerText = createdAt + " : " + content; // サーバーから受け取った時刻を使う
+        div.appendChild(text);
+
+        // 自分のメッセージにだけ削除ボタンを追加する
+        if (userID === currentUserID) {
+          var btn = document.createElement("button");
+          btn.className = "delete-btn";
+          btn.innerText = "削除";
+          btn.onclick = function () {
+            // 削除リクエストをJSON形式でサーバーに送る
+            ws.send(JSON.stringify({ type: "delete", id: id }));
+          };
+          div.appendChild(btn);
+        }
+
+        document.getElementById("messages").appendChild(div);
+      }
+
+      // サーバーからメッセージが届いた時の処理
       ws.onmessage = function (msg) {
-        console.log(msg);
-        var line = now() + " : " + msg.data + "\n";
-        chat.innerText += line;
+        var data = JSON.parse(msg.data);
+
+        if (data.type === "me") {
+          // 自分のユーザーIDを受け取って保存する
+          // これ以降に届くメッセージの userID と比較して削除ボタンを出すか決める
+          currentUserID = data.userID;
+
+        } else if (data.type === "userCount") {
+          document.getElementById("online-count").innerText =
+            "オンライン: " + data.count + "人";
+
+        } else if (data.type === "chat") {
+          addMessage(data.id, data.content, data.userID, data.createdAt);
+
+        } else if (data.type === "delete") {
+          // data-id属性が一致するDOM要素を探して削除する
+          var el = document.querySelector("[data-id='" + data.id + "']");
+          if (el) el.remove();
+        }
       };
 
-      // 入力フォームにテキストを入力してEnterキーが押された時、入力内容をサーバーへ送信する
       text.addEventListener("keypress", function (e) {
         if (e.key === "Enter" && text.value !== "") {
-          ws.send(text.value);
-          text.value = ""; // テキストエリアをリセット
+          // チャットメッセージもJSON形式で送るように変更
+          ws.send(JSON.stringify({ type: "chat", content: text.value }));
+          text.value = "";
         }
       });
     </script>

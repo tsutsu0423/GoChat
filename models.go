@@ -22,6 +22,7 @@ type User struct {
 type ChatMessage struct {
 	gorm.Model
 	Content string
+	UserID  uint // 誰が送ったか（Userのidを保存する）
 }
 
 func init() {
