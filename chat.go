@@ -98,7 +98,7 @@ func main() {
 					ID:        m.ID,
 					Content:   m.Content,
 					UserID:    m.UserID,
-					CreatedAt: m.CreatedAt.Format("2006/01/02 15:04:05"), // DBの投稿時刻を文字列に変換
+					CreatedAt: m.CreatedAt.Format("2026/04/14 12:04:00"), // DBの投稿時刻を文字列に変換
 				})
 				conn.WriteMessage(websocket.TextMessage, msg)
 			}
