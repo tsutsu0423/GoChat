@@ -18,6 +18,11 @@ func registerHandler(c *gin.Context) {
 		username := c.PostForm("username")
 		password := c.PostForm("password")
 
+		if username == "" || password == "" {
+			c.String(http.StatusBadRequest, "ユーザー名とパスワードを入力してください")
+			return
+		}
+
 		// パスワードをハッシュ化して保存（平文で保存しない！）
 		hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		if err != nil {
