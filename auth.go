@@ -51,6 +51,11 @@ func loginHandler(c *gin.Context) {
 		username := c.PostForm("username")
 		password := c.PostForm("password")
 
+		if username == "" || password == "" {
+			c.String(http.StatusBadRequest, "ユーザー名とパスワードを入力してください")
+			return
+		}
+
 		// DBからユーザーを検索
 		var user User
 		db.Where("username = ?", username).First(&user)
