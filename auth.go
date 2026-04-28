@@ -25,7 +25,13 @@ func registerHandler(c *gin.Context) {
 			return
 		}
 
-		db.Create(&User{Username: username, Password: string(hashed)})
+		result := db.Create(&User{Username: username, Password: string(hashed)})
+		if result.Error != nil {
+			c.String(http.StatusBadRequest, "このユーザー名は既に使用されています")
+			return
+		}
+
+		// db.Create(&User{Username: username, Password: string(hashed)})
 		// 登録後はログインページへリダイレクト
 		c.Redirect(http.StatusFound, "/login")
 	}
