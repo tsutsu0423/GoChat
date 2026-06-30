@@ -18,6 +18,11 @@ func registerHandler(c *gin.Context) {
 		username := c.PostForm("username")
 		password := c.PostForm("password")
 
+		if username == "" || password == "" {
+			c.String(http.StatusBadRequest, "ユーザー名とパスワードを入力してください")
+			return
+		}
+
 		// パスワードをハッシュ化して保存（平文で保存しない！）
 		hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		if err != nil {
@@ -25,7 +30,13 @@ func registerHandler(c *gin.Context) {
 			return
 		}
 
-		db.Create(&User{Username: username, Password: string(hashed)})
+		result := db.Create(&User{Username: username, Password: string(hashed)})
+		if result.Error != nil {
+			c.String(http.StatusBadRequest, "このユーザー名は既に使用されています")
+			return
+		}
+
+		// db.Create(&User{Username: username, Password: string(hashed)})
 		// 登録後はログインページへリダイレクト
 		c.Redirect(http.StatusFound, "/login")
 	}
@@ -39,6 +50,11 @@ func loginHandler(c *gin.Context) {
 	case http.MethodPost:
 		username := c.PostForm("username")
 		password := c.PostForm("password")
+
+		if username == "" || password == "" {
+			c.String(http.StatusBadRequest, "ユーザー名とパスワードを入力してください")
+			return
+		}
 
 		// DBからユーザーを検索
 		var user User

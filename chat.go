@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 
 	"github.com/gin-contrib/sessions"
@@ -42,7 +43,7 @@ type WSMessage struct {
 func main() {
 	r := gin.Default()
 
-	store := cookie.NewStore([]byte("secret-key"))
+	store := cookie.NewStore([]byte(os.Getenv("session_secret")))
 	r.Use(sessions.Sessions("session", store))
 
 	r.Any("/register", registerHandler)
