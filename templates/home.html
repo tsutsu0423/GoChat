@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>チャットグループ一覧</title>
+    <link rel="stylesheet" href="/static/css/chat.css" />
+    <link rel="stylesheet" href="/static/css/home.css" />
+  </head>
+
+  <body>
+    <div class="app home">
+      <header>
+        <h1>チャットグループ一覧</h1>
+        <div class="header-right">
+          <a href="/logout">ログアウト</a>
+        </div>
+      </header>
+
+      <main>
+        <form class="create-form" method="POST" action="/rooms">
+          <input type="text" name="name" placeholder="新しいグループ名" required />
+          <button type="submit">＋ 作成</button>
+        </form>
+
+        <ul id="room-list"></ul>
+        <p id="empty-hint" class="empty-hint" hidden>まだグループがありません。上のフォームから作成してください。</p>
+      </main>
+    </div>
+
+    <script>
+      // 部屋一覧をサーバーから取得してDOMに描画する
+      function loadRooms() {
+        fetch("/rooms")
+          .then(function (res) {
+            return res.json();
+          })
+          .then(function (rooms) {
+            renderRooms(rooms);
+          });
+      }
+
+      function renderRooms(rooms) {
+        var list = document.getElementById("room-list");
+        var emptyHint = document.getElementById("empty-hint");
+
+        list.innerHTML = "";
+
+        if (rooms.length === 0) {
+          emptyHint.hidden = false;
+          return;
+        }
+        emptyHint.hidden = true;
+
+        rooms.forEach(function (room) {
+          var li = document.createElement("li");
+          li.className = "room-row";
+
+          var name = document.createElement("span");
+          name.className = "room-name";
+          name.innerText = room.name;
+          li.appendChild(name);
+
+          var online = document.createElement("span");
+          online.className = "room-online";
+          online.innerText = room.onlineCount + "人";
+          li.appendChild(online);
+
+          var enter = document.createElement("a");
+          enter.className = "room-enter";
+          enter.href = "/rooms/" + room.id;
+          enter.innerText = "入室";
+          li.appendChild(enter);
+
+          list.appendChild(li);
+        });
+      }
+
+      loadRooms();
+      // 他の人の入退室に合わせて在室人数がだいたい最新になるよう、定期的に再取得する
+      setInterval(loadRooms, 5000);
+    </script>
+  </body>
+</html>

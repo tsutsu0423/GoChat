@@ -78,7 +78,7 @@ func loginHandler(c *gin.Context) {
 		session.Set("userID", user.ID)
 		session.Save()
 
-		c.Redirect(http.StatusFound, "/chat")
+		c.Redirect(http.StatusFound, "/")
 	}
 }
 

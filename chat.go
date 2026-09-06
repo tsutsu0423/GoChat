@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sync"
+	"strconv"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
@@ -14,13 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var clients = make(map[*websocket.Conn]bool)
-var mu sync.Mutex
-
-// broadcast チャンネルはチャットメッセージの中身と送信者IDをセットで運ぶ
-var broadcast = make(chan BroadcastMsg)
-
-// BroadcastMsg はbroadcastチャンネルで運ぶデータ
+// BroadcastMsg はHubのbroadcastチャンネルで運ぶデータ
 // チャットの文字列だけでなく、誰が送ったか（UserID・Username）も一緒に持つ
 type BroadcastMsg struct {
 	Content  string
@@ -38,6 +32,13 @@ type WSMessage struct {
 	Username  string `json:"username,omitempty"`  // 送信者のユーザー名（表示用）
 	Count     int    `json:"count,omitempty"`     // オンライン人数
 	CreatedAt string `json:"createdAt,omitempty"` // 投稿時刻（DBの保存時刻をそのまま文字列で渡す）
+}
+
+// RoomView はホーム画面（/rooms）がJSONで返す部屋1件分の情報
+type RoomView struct {
+	ID          uint   `json:"id"`
+	Name        string `json:"name"`
+	OnlineCount int    `json:"onlineCount"`
 }
 
 func main() {
@@ -60,11 +61,88 @@ func main() {
 	authorized := r.Group("/")
 	authorized.Use(authRequired)
 	{
-		authorized.GET("/chat", func(c *gin.Context) {
+		// ホーム画面：部屋一覧ページ
+		authorized.GET("/", func(c *gin.Context) {
+			http.ServeFile(c.Writer, c.Request, "templates/home.html")
+		})
+
+		// 部屋一覧をJSONで返す（home.htmlのJSがfetchする）
+		authorized.GET("/rooms", func(c *gin.Context) {
+			var rooms []Room
+			db.Order("created_at asc").Find(&rooms)
+
+			views := make([]RoomView, 0, len(rooms))
+			for _, room := range rooms {
+				hubsMu.Lock()
+				h, ok := hubs[room.ID]
+				hubsMu.Unlock()
+
+				onlineCount := 0
+				if ok {
+					// h.clientsはHubのgoroutineしか直接触らないので、
+					// ここではチャンネル経由(OnlineCount)で安全に問い合わせる
+					onlineCount = h.OnlineCount()
+				}
+
+				views = append(views, RoomView{ID: room.ID, Name: room.Name, OnlineCount: onlineCount})
+			}
+
+			c.JSON(http.StatusOK, views)
+		})
+
+		// 部屋を新規作成する
+		authorized.POST("/rooms", func(c *gin.Context) {
+			name := c.PostForm("name")
+			if name == "" {
+				c.String(http.StatusBadRequest, "部屋名を入力してください")
+				return
+			}
+
+			session := sessions.Default(c)
+			currentUserID := session.Get("userID").(uint)
+
+			result := db.Create(&Room{Name: name, CreatedBy: currentUserID})
+			if result.Error != nil {
+				c.String(http.StatusBadRequest, "その部屋名は既に使用されています")
+				return
+			}
+
+			c.Redirect(http.StatusFound, "/")
+		})
+
+		// 部屋ごとのチャット画面
+		authorized.GET("/rooms/:id", func(c *gin.Context) {
+			roomID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+			if err != nil {
+				c.String(http.StatusBadRequest, "不正な部屋IDです")
+				return
+			}
+
+			var room Room
+			db.First(&room, roomID)
+			if room.ID == 0 {
+				c.String(http.StatusNotFound, "部屋が見つかりません")
+				return
+			}
+
 			http.ServeFile(c.Writer, c.Request, "templates/chat.html")
 		})
 
-		authorized.GET("/ws", func(c *gin.Context) {
+		// 部屋ごとのWebSocket接続
+		authorized.GET("/rooms/:id/ws", func(c *gin.Context) {
+			roomID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+			if err != nil {
+				c.String(http.StatusBadRequest, "不正な部屋IDです")
+				return
+			}
+
+			var room Room
+			db.First(&room, roomID)
+			if room.ID == 0 {
+				c.String(http.StatusNotFound, "部屋が見つかりません")
+				return
+			}
+
 			conn, err := wsupgrader.Upgrade(c.Writer, c.Request, nil)
 			if err != nil {
 				log.Printf("Failed to set websocket upgrade: %+v\n", err)
@@ -80,27 +158,23 @@ func main() {
 			var currentUser User
 			db.First(&currentUser, currentUserID)
 
-			mu.Lock()
-			clients[conn] = true
-			mu.Unlock()
-
-			broadcastUserCount()
-
-			defer func() {
-				mu.Lock()
-				delete(clients, conn)
-				mu.Unlock()
-				conn.Close()
-				broadcastUserCount()
-			}()
+			hub := getOrCreateHub(room.ID)
+			client := &Client{
+				hub:      hub,
+				conn:     conn,
+				send:     make(chan []byte, 256),
+				userID:   currentUserID,
+				username: currentUser.Username,
+			}
 
 			// ① 自分のユーザーIDをブラウザに教える（削除ボタンの表示判定に使う）
+			// この時点ではwritePumpがまだ動いていないので、直接書き込んでも安全
 			meMsg, _ := json.Marshal(WSMessage{Type: "me", UserID: currentUserID})
 			conn.WriteMessage(websocket.TextMessage, meMsg)
 
-			// ② 過去のチャット履歴を送る（IDとUserIDも含める）
+			// ② この部屋の過去のチャット履歴を送る
 			var chatHistory []ChatMessage
-			db.Order("created_at asc").Find(&chatHistory)
+			db.Where("room_id = ?", room.ID).Order("created_at asc").Find(&chatHistory)
 			for _, m := range chatHistory {
 				msg, _ := json.Marshal(WSMessage{
 					Type:      "chat",
@@ -113,115 +187,13 @@ func main() {
 				conn.WriteMessage(websocket.TextMessage, msg)
 			}
 
-			// ③ クライアントからのメッセージを待ち続けるループ
-			for {
-				_, rawMsg, err := conn.ReadMessage()
-				if err != nil {
-					break
-				}
-
-				// クライアントからのメッセージはすべてJSON形式
-				var incoming WSMessage
-				if err := json.Unmarshal(rawMsg, &incoming); err != nil {
-					continue // JSONでなければ無視
-				}
-
-				switch incoming.Type {
-				case "chat":
-					// チャットメッセージ → broadcastに流してhandleMessageへ
-					broadcast <- BroadcastMsg{Content: incoming.Content, UserID: currentUserID, Username: currentUser.Username}
-				case "delete":
-					// 削除リクエスト → 自分のメッセージか確認してDB削除＆全員に通知
-					handleDelete(incoming.ID, currentUserID)
-				case "typing", "stopTyping":
-					// タイピング状態を全員にブロードキャスト（サーバーは状態を持たず中継するだけ）
-					broadcastTyping(incoming.Type, currentUserID, currentUser.Username)
-				}
-			}
+			// ③ 書き込み・読み取り専用のgoroutineを起動してからHubに登録する
+			go client.writePump()
+			go client.readPump()
+			hub.register <- client
 		})
 	}
-
-	go handleMessage()
 
 	fmt.Println("サーバー起動: http://localhost:4001/register")
 	r.Run(":4001")
-}
-
-// broadcastUserCount は現在のオンライン人数を全クライアントに送信する
-func broadcastUserCount() {
-	mu.Lock()
-	defer mu.Unlock()
-
-	count := len(clients)
-	msg, _ := json.Marshal(WSMessage{Type: "userCount", Count: count})
-	for client := range clients {
-		client.WriteMessage(websocket.TextMessage, msg)
-	}
-}
-
-// handleDelete はメッセージの所有者確認・DB削除・全員への削除通知を行う
-func handleDelete(msgID uint, currentUserID uint) {
-	// DBからメッセージを取得
-	var chatMsg ChatMessage
-	db.First(&chatMsg, msgID)
-
-	// 存在しない、または自分のメッセージでない場合は何もしない
-	if chatMsg.ID == 0 || chatMsg.UserID != currentUserID {
-		return
-	}
-
-	// DBから削除（GORMのDeleteはsoft delete: deleted_atに時刻を入れるだけ）
-	db.Delete(&chatMsg)
-
-	// 全クライアントに「このIDのメッセージを削除して」と通知する
-	deleteMsg, _ := json.Marshal(WSMessage{Type: "delete", ID: msgID})
-	mu.Lock()
-	for client := range clients {
-		client.WriteMessage(websocket.TextMessage, deleteMsg)
-	}
-	mu.Unlock()
-}
-
-// broadcastTyping はタイピング状態を全クライアントに中継する
-// サーバーは状態を保存せず、受け取ったイベントをそのまま全員に流すだけ
-func broadcastTyping(msgType string, userID uint, username string) {
-	msg, _ := json.Marshal(WSMessage{Type: msgType, UserID: userID, Username: username})
-	mu.Lock()
-	for client := range clients {
-		client.WriteMessage(websocket.TextMessage, msg)
-	}
-	mu.Unlock()
-}
-
-// handleMessage はbroadcastチャンネルからメッセージを受け取り全員に転送する
-func handleMessage() {
-	for {
-		bm := <-broadcast
-
-		// DBに保存（UserID・Usernameも一緒に保存する）
-		chatMsg := ChatMessage{Content: bm.Content, UserID: bm.UserID, Username: bm.Username}
-		db.Create(&chatMsg)
-
-		// DB保存後のID・CreatedAtを含めてJSONを作る
-		// db.Create()後は chatMsg.CreatedAt にDBが採番した時刻が入っている
-		msg, _ := json.Marshal(WSMessage{
-			Type:      "chat",
-			ID:        chatMsg.ID,
-			Content:   bm.Content,
-			UserID:    bm.UserID,
-			Username:  bm.Username,
-			CreatedAt: chatMsg.CreatedAt.Format("2006/01/02 15:04:05"),
-		})
-
-		mu.Lock()
-		for client := range clients {
-			err := client.WriteMessage(websocket.TextMessage, msg)
-			if err != nil {
-				log.Printf("error: %v", err)
-				client.Close()
-				delete(clients, client)
-			}
-		}
-		mu.Unlock()
-	}
 }

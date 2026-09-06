@@ -53,6 +53,15 @@ header h1 {
   font-weight: 600;
 }
 
+.leave-link {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.leave-link:hover {
+  color: var(--accent);
+}
+
 .header-right {
   display: flex;
   align-items: center;

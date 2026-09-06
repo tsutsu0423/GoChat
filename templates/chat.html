@@ -10,7 +10,7 @@
   <body>
     <div class="app">
       <header>
-        <h1>リアルタイムチャット</h1>
+        <h1><a href="/" class="leave-link">← 退室</a></h1>
         <div class="header-right">
           <span id="online-count">--人</span>
           <a href="/logout">ログアウト</a>
@@ -27,7 +27,18 @@
     </div>
 
     <script>
-      var ws = new WebSocket("ws://" + window.location.host + "/ws");
+      // 今開いているページのパス（例: /rooms/3）に "/ws" を足すだけで
+      // そのままそのルーム専用のWebSocketエンドポイント（/rooms/3/ws）になる
+      var ws = new WebSocket("ws://" + window.location.host + window.location.pathname + "/ws");
+
+      // ページ遷移・タブを閉じる・戻る操作など、このページを離れるあらゆる
+      // タイミングで明示的にWebSocketを閉じる。
+      // ブラウザの「ページ遷移時に接続を自動で閉じてくれる」挙動だけに頼ると、
+      // ブラウザや状況によってはすぐに閉じられず、サーバー側の在室人数が
+      // 減らないままになることがあるため、ここで確実に閉じておく。
+      window.addEventListener("pagehide", function () {
+        ws.close();
+      });
 
       // 自分のユーザーID（サーバーから "me" メッセージで受け取って保存する）
       var currentUserID = null;

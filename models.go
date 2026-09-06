@@ -18,12 +18,20 @@ type User struct {
 	Password string
 }
 
+// Roomはチャットグループ（部屋）を保持するstruct
+type Room struct {
+	gorm.Model
+	Name      string `gorm:"unique"` // 部屋名（重複禁止）
+	CreatedBy uint   // 作成したユーザーのID
+}
+
 // ChatMessageはチャットのメッセージを保持するstruct
 type ChatMessage struct {
 	gorm.Model
 	Content  string
 	UserID   uint   // 誰が送ったか（Userのidを保存する）
 	Username string // 誰が送ったか（表示用のユーザー名）
+	RoomID   uint   // どの部屋のメッセージか
 }
 
 func init() {
@@ -37,5 +45,5 @@ func init() {
 	}
 
 	// structの定義に合わせてDBテーブルを自動作成・更新
-	db.AutoMigrate(&User{}, &ChatMessage{})
+	db.AutoMigrate(&User{}, &Room{}, &ChatMessage{})
 }

@@ -1,0 +1,279 @@
+package main
+
+import (
+	"encoding/json"
+	"log"
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+const (
+	// pongWait: この時間だけ相手からの応答(pong)が無ければ「接続が死んでいる」とみなす
+	pongWait = 60 * time.Second
+	// pingPeriod: pongWaitより少し短い間隔でこちらからping送信する
+	pingPeriod = (pongWait * 9) / 10
+	// writeWait: 書き込み1回あたりのタイムアウト
+	writeWait = 10 * time.Second
+)
+
+// Hub は「1つのチャットルーム」を表す。
+// このHubの中身（clientsマップ）はrun()を動かしているgoroutine以外は
+// 直接触らない。他のgoroutineはすべてチャンネル経由でHubに話しかける。
+// → mapを直接ロックする必要がなくなる（Goの「メモリ共有より通信」の考え方）
+type Hub struct {
+	id uint
+
+	clients map[*Client]bool
+
+	register   chan *Client
+	unregister chan *Client
+	broadcast  chan BroadcastMsg
+	deleteReq  chan DeleteReq
+	typingReq  chan TypingReq
+	countReq   chan chan int
+}
+
+// DeleteReq はメッセージ削除リクエストをHubに伝えるためのデータ
+type DeleteReq struct {
+	MsgID  uint
+	UserID uint
+}
+
+// TypingReq はタイピング状態の変化をHubに伝えるためのデータ
+type TypingReq struct {
+	Kind     string // "typing" または "stopTyping"
+	UserID   uint
+	Username string
+}
+
+// Client は「1つのWebSocket接続（＝1人のユーザーの1つのタブ）」を表す。
+type Client struct {
+	hub      *Hub
+	conn     *websocket.Conn
+	send     chan []byte // このクライアントへ送るべきメッセージのキュー
+	userID   uint
+	username string
+}
+
+// hubs は roomID → Hub の対応表（部屋のレジストリ）。
+// hubsMu は「同時に2つのリクエストが同じ部屋のHubを新規作成しようとする」
+// ようなケースからこのマップ自体を守るための唯一のミューテックス。
+// （Hub内部のclientsマップとは保護対象が別なので、ここでしかロックを使わない）
+var hubs = make(map[uint]*Hub)
+var hubsMu sync.Mutex
+
+// newHub はHubを作るだけで、run()はまだ動かさない
+func newHub(roomID uint) *Hub {
+	return &Hub{
+		id:         roomID,
+		clients:    make(map[*Client]bool),
+		register:   make(chan *Client),
+		unregister: make(chan *Client),
+		broadcast:  make(chan BroadcastMsg),
+		deleteReq:  make(chan DeleteReq),
+		typingReq:  make(chan TypingReq),
+		countReq:   make(chan chan int),
+	}
+}
+
+// OnlineCount は現在の在室人数を安全に取得する。
+// h.clientsはh.run()のgoroutineしか直接触らない、というルールを守るため、
+// 「問い合わせ用のチャンネル」を送り、run()側に返信してもらう形にしている。
+// （ここでmutexを使ってh.clientsを直接読むと、h.run()のgoroutineとの間で
+//  同期されていない並行アクセスになり、更新が反映されずに古い値を読み続ける
+//  ことがあるGoのメモリモデル上の問題を引き起こす）
+func (h *Hub) OnlineCount() int {
+	reply := make(chan int)
+	h.countReq <- reply
+	return <-reply
+}
+
+// getOrCreateHub は指定した部屋のHubを返す。まだ存在しなければ作って
+// 専用のgoroutine（h.run()）を起動する。
+// 一度作られたHubはプロセスが動いている間ずっと生き続ける
+// （空室になっても破棄しない。誰もいなくてもselectで待つだけなのでコストはほぼゼロ。
+//   最後の1人の退室と次の人の入室が同時に起きた場合の競合を避けられる、
+//   という理由でこの単純な方針を選んでいる）
+func getOrCreateHub(roomID uint) *Hub {
+	hubsMu.Lock()
+	defer hubsMu.Unlock()
+
+	if h, ok := hubs[roomID]; ok {
+		return h
+	}
+
+	h := newHub(roomID)
+	hubs[roomID] = h
+	go h.run()
+	return h
+}
+
+// run はこの部屋専用のイベントループ。1本のgoroutineで動き続け、
+// register/unregister/broadcast/deleteReq/typingReq を順番に1つずつ処理する。
+// これにより「DBへの保存」と「全員への配信」の間で競合が起きない。
+func (h *Hub) run() {
+	for {
+		select {
+		case c := <-h.register:
+			h.clients[c] = true
+			h.broadcastUserCount()
+
+		case c := <-h.unregister:
+			if _, ok := h.clients[c]; ok {
+				delete(h.clients, c)
+				close(c.send)
+				h.broadcastUserCount()
+			}
+
+		case bm := <-h.broadcast:
+			h.handleChat(bm)
+
+		case req := <-h.deleteReq:
+			h.handleDelete(req)
+
+		case req := <-h.typingReq:
+			h.handleTyping(req)
+
+		case reply := <-h.countReq:
+			reply <- len(h.clients)
+		}
+	}
+}
+
+// send はこのHubに参加している全クライアントへメッセージを送る。
+// 送信先クライアントのsendチャンネルが詰まっている（bufferが満杯）場合は
+// そのクライアントを切断扱いにする（遅いクライアントのために全体を止めない）
+func (h *Hub) send(msg []byte) {
+	for c := range h.clients {
+		select {
+		case c.send <- msg:
+		default:
+			close(c.send)
+			delete(h.clients, c)
+		}
+	}
+}
+
+func (h *Hub) broadcastUserCount() {
+	msg, _ := json.Marshal(WSMessage{Type: "userCount", Count: len(h.clients)})
+	h.send(msg)
+}
+
+// handleChat はチャットメッセージをDBに保存し、全員に配信する
+// （旧 handleMessage 相当の処理をルーム単位に持ち込んだもの）
+func (h *Hub) handleChat(bm BroadcastMsg) {
+	chatMsg := ChatMessage{Content: bm.Content, UserID: bm.UserID, Username: bm.Username, RoomID: h.id}
+	db.Create(&chatMsg)
+
+	msg, _ := json.Marshal(WSMessage{
+		Type:      "chat",
+		ID:        chatMsg.ID,
+		Content:   bm.Content,
+		UserID:    bm.UserID,
+		Username:  bm.Username,
+		CreatedAt: chatMsg.CreatedAt.Format("2006/01/02 15:04:05"),
+	})
+	h.send(msg)
+}
+
+// handleDelete はメッセージの所有者確認・DB削除・全員への削除通知を行う
+func (h *Hub) handleDelete(req DeleteReq) {
+	var chatMsg ChatMessage
+	db.First(&chatMsg, req.MsgID)
+
+	if chatMsg.ID == 0 || chatMsg.UserID != req.UserID || chatMsg.RoomID != h.id {
+		return
+	}
+
+	db.Delete(&chatMsg)
+
+	msg, _ := json.Marshal(WSMessage{Type: "delete", ID: req.MsgID})
+	h.send(msg)
+}
+
+// handleTyping はタイピング状態を全員に中継する（状態は保存しない）
+func (h *Hub) handleTyping(req TypingReq) {
+	msg, _ := json.Marshal(WSMessage{Type: req.Kind, UserID: req.UserID, Username: req.Username})
+	h.send(msg)
+}
+
+// readPump はこの接続からの読み取りだけを行う専用goroutine。
+// 読んだイベントはHubのチャンネルに渡すだけで、自分ではclientsマップに触らない。
+//
+// ブラウザがページ遷移やタブ閉じでWebSocketを綺麗に閉じてくれれば
+// ReadMessageはすぐエラーを返すが、スリープやネットワーク切断などで
+// 「相手が応答しなくなった」だけの場合は何もしなければ永遠にブロックし続けてしまう。
+// それを防ぐため、一定時間(pongWait)応答が無ければ強制的にタイムアウトさせる。
+func (c *Client) readPump() {
+	defer func() {
+		c.hub.unregister <- c
+		c.conn.Close()
+	}()
+
+	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error {
+		c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	for {
+		_, rawMsg, err := c.conn.ReadMessage()
+		if err != nil {
+			break
+		}
+
+		var incoming WSMessage
+		if err := json.Unmarshal(rawMsg, &incoming); err != nil {
+			continue
+		}
+
+		switch incoming.Type {
+		case "chat":
+			c.hub.broadcast <- BroadcastMsg{Content: incoming.Content, UserID: c.userID, Username: c.username}
+		case "delete":
+			c.hub.deleteReq <- DeleteReq{MsgID: incoming.ID, UserID: c.userID}
+		case "typing", "stopTyping":
+			c.hub.typingReq <- TypingReq{Kind: incoming.Type, UserID: c.userID, Username: c.username}
+		}
+	}
+}
+
+// writePump はこの接続への書き込みだけを行う専用goroutine。
+// gorilla/websocketは同じコネクションへの同時書き込みを許さないため、
+// 「書き込みを行うのは必ずこのgoroutineだけ」というルールにして競合を防ぐ。
+//
+// 定期的にping（pingPeriodおき）を送ることで、readPump側のReadDeadlineを
+// 相手が生きている限り延長し続けてもらう。相手が応答しなくなればpongが
+// 返らなくなり、readPump側がpongWait経過後にタイムアウトしてunregisterされる。
+func (c *Client) writePump() {
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+
+	for {
+		select {
+		case msg, ok := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				// c.sendがcloseされた（Hubがunregister処理した）
+				// クライアントに正常クローズを伝えて終了する
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				log.Printf("write error: %v", err)
+				return
+			}
+
+		case <-ticker.C:
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		}
+	}
+}

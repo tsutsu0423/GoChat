@@ -1,0 +1,110 @@
+.app.home {
+  max-height: none;
+  height: auto;
+  min-height: 480px;
+}
+
+main {
+  padding: 18px;
+  overflow-y: auto;
+}
+
+.create-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.create-form input {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 13.5px;
+  outline: none;
+  color: var(--text);
+}
+
+.create-form input:focus {
+  border-color: var(--accent);
+}
+
+.create-form button {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  padding: 0 18px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.create-form button:hover {
+  background: var(--accent-dark);
+}
+
+#room-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.room-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.room-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.room-online {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-left: 8px;
+  margin-right: auto;
+  padding-left: 12px;
+}
+
+.room-online::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2ecc71;
+  display: inline-block;
+}
+
+.room-enter {
+  color: #fff;
+  background: var(--accent);
+  text-decoration: none;
+  font-size: 12.5px;
+  padding: 6px 14px;
+  border-radius: 16px;
+  flex-shrink: 0;
+}
+
+.room-enter:hover {
+  background: var(--accent-dark);
+}
+
+.empty-hint {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 24px 0;
+}
