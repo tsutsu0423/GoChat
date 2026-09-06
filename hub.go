@@ -16,6 +16,8 @@ const (
 	pingPeriod = (pongWait * 9) / 10
 	// writeWait: 書き込み1回あたりのタイムアウト
 	writeWait = 10 * time.Second
+	// chatMinInterval: 1接続からのチャット送信を受け付ける最短間隔（連投・スパム対策）
+	chatMinInterval = 500 * time.Millisecond
 )
 
 // Hub は「1つのチャットルーム」を表す。
@@ -55,6 +57,11 @@ type Client struct {
 	send     chan []byte // このクライアントへ送るべきメッセージのキュー
 	userID   uint
 	username string
+
+	// lastChatAt: 直近でチャットを送信した時刻（レート制限用）。
+	// readPumpのgoroutineだけが読み書きするので、他のフィールドと同様に
+	// mutexなどの同期は不要（1接続につきreadPumpは1つしか動かないため）
+	lastChatAt time.Time
 }
 
 // hubs は roomID → Hub の対応表（部屋のレジストリ）。
@@ -231,6 +238,12 @@ func (c *Client) readPump() {
 
 		switch incoming.Type {
 		case "chat":
+			// 連投スパム対策: 前回の送信からchatMinIntervalが経っていなければ
+			// 黙って無視する（DBへの保存も全員への配信もしない）
+			if time.Since(c.lastChatAt) < chatMinInterval {
+				continue
+			}
+			c.lastChatAt = time.Now()
 			c.hub.broadcast <- BroadcastMsg{Content: incoming.Content, UserID: c.userID, Username: c.username}
 		case "delete":
 			c.hub.deleteReq <- DeleteReq{MsgID: incoming.ID, UserID: c.userID}
