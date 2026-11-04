@@ -139,6 +139,12 @@
           // data-id属性が一致するDOM要素を探して削除する
           var el = document.querySelector("[data-id='" + data.id + "']");
           if (el) el.remove();
+
+        } else if (data.type === "roomDeleted") {
+          // 作成者がこの部屋を削除した → 全員をホームへ戻す
+          alert("この部屋は削除されました");
+          ws.close();
+          location.href = "/";
         }
       };
 

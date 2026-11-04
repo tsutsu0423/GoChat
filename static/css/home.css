@@ -102,6 +102,27 @@ main {
   background: var(--accent-dark);
 }
 
+.room-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.room-delete:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
 .empty-hint {
   color: var(--muted);
   font-size: 13px;

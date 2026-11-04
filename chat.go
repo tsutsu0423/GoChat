@@ -39,6 +39,7 @@ type RoomView struct {
 	ID          uint   `json:"id"`
 	Name        string `json:"name"`
 	OnlineCount int    `json:"onlineCount"`
+	IsOwner     bool   `json:"isOwner"` // 自分が作成した部屋か（削除ボタンの表示判定に使う）
 }
 
 func main() {
@@ -71,6 +72,9 @@ func main() {
 			var rooms []Room
 			db.Order("created_at asc").Find(&rooms)
 
+			session := sessions.Default(c)
+			currentUserID := session.Get("userID").(uint)
+
 			views := make([]RoomView, 0, len(rooms))
 			for _, room := range rooms {
 				hubsMu.Lock()
@@ -84,7 +88,12 @@ func main() {
 					onlineCount = h.OnlineCount()
 				}
 
-				views = append(views, RoomView{ID: room.ID, Name: room.Name, OnlineCount: onlineCount})
+				views = append(views, RoomView{
+					ID:          room.ID,
+					Name:        room.Name,
+					OnlineCount: onlineCount,
+					IsOwner:     room.CreatedBy == currentUserID,
+				})
 			}
 
 			c.JSON(http.StatusOK, views)
@@ -108,6 +117,43 @@ func main() {
 			}
 
 			c.Redirect(http.StatusFound, "/")
+		})
+
+		// 部屋を削除する（作成者本人のみ）
+		authorized.DELETE("/rooms/:id", func(c *gin.Context) {
+			roomID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+			if err != nil {
+				c.String(http.StatusBadRequest, "不正な部屋IDです")
+				return
+			}
+
+			var room Room
+			db.First(&room, roomID)
+			if room.ID == 0 {
+				c.String(http.StatusNotFound, "部屋が見つかりません")
+				return
+			}
+
+			session := sessions.Default(c)
+			currentUserID := session.Get("userID").(uint)
+			if room.CreatedBy != currentUserID {
+				c.String(http.StatusForbidden, "この部屋を削除できるのは作成者だけです")
+				return
+			}
+
+			// 接続中のユーザーがいれば、部屋が削除されたことを知らせる
+			// （知らせを受けたクライアント側がWebSocketを閉じてホームへ戻る）
+			hubsMu.Lock()
+			h, ok := hubs[room.ID]
+			hubsMu.Unlock()
+			if ok {
+				h.NotifyRoomDeleted()
+			}
+
+			db.Where("room_id = ?", room.ID).Delete(&ChatMessage{})
+			db.Delete(&room)
+
+			c.Status(http.StatusNoContent)
 		})
 
 		// 部屋ごとのチャット画面

@@ -29,12 +29,13 @@ type Hub struct {
 
 	clients map[*Client]bool
 
-	register   chan *Client
-	unregister chan *Client
-	broadcast  chan BroadcastMsg
-	deleteReq  chan DeleteReq
-	typingReq  chan TypingReq
-	countReq   chan chan int
+	register    chan *Client
+	unregister  chan *Client
+	broadcast   chan BroadcastMsg
+	deleteReq   chan DeleteReq
+	typingReq   chan TypingReq
+	countReq    chan chan int
+	roomDeleted chan struct{}
 }
 
 // DeleteReq はメッセージ削除リクエストをHubに伝えるためのデータ
@@ -74,14 +75,15 @@ var hubsMu sync.Mutex
 // newHub はHubを作るだけで、run()はまだ動かさない
 func newHub(roomID uint) *Hub {
 	return &Hub{
-		id:         roomID,
-		clients:    make(map[*Client]bool),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		broadcast:  make(chan BroadcastMsg),
-		deleteReq:  make(chan DeleteReq),
-		typingReq:  make(chan TypingReq),
-		countReq:   make(chan chan int),
+		id:          roomID,
+		clients:     make(map[*Client]bool),
+		register:    make(chan *Client),
+		unregister:  make(chan *Client),
+		broadcast:   make(chan BroadcastMsg),
+		deleteReq:   make(chan DeleteReq),
+		typingReq:   make(chan TypingReq),
+		countReq:    make(chan chan int),
+		roomDeleted: make(chan struct{}),
 	}
 }
 
@@ -89,20 +91,29 @@ func newHub(roomID uint) *Hub {
 // h.clientsはh.run()のgoroutineしか直接触らない、というルールを守るため、
 // 「問い合わせ用のチャンネル」を送り、run()側に返信してもらう形にしている。
 // （ここでmutexを使ってh.clientsを直接読むと、h.run()のgoroutineとの間で
-//  同期されていない並行アクセスになり、更新が反映されずに古い値を読み続ける
-//  ことがあるGoのメモリモデル上の問題を引き起こす）
+//
+//	同期されていない並行アクセスになり、更新が反映されずに古い値を読み続ける
+//	ことがあるGoのメモリモデル上の問題を引き起こす）
 func (h *Hub) OnlineCount() int {
 	reply := make(chan int)
 	h.countReq <- reply
 	return <-reply
 }
 
+// NotifyRoomDeleted はこの部屋がDB上で削除されたことを、接続中の全クライアントに知らせる。
+// h.clientsをHTTPハンドラ側から直接触らないように、こちらもchannel経由でHubの
+// goroutineに処理してもらう（OnlineCountと同じ考え方）
+func (h *Hub) NotifyRoomDeleted() {
+	h.roomDeleted <- struct{}{}
+}
+
 // getOrCreateHub は指定した部屋のHubを返す。まだ存在しなければ作って
 // 専用のgoroutine（h.run()）を起動する。
 // 一度作られたHubはプロセスが動いている間ずっと生き続ける
 // （空室になっても破棄しない。誰もいなくてもselectで待つだけなのでコストはほぼゼロ。
-//   最後の1人の退室と次の人の入室が同時に起きた場合の競合を避けられる、
-//   という理由でこの単純な方針を選んでいる）
+//
+//	最後の1人の退室と次の人の入室が同時に起きた場合の競合を避けられる、
+//	という理由でこの単純な方針を選んでいる）
 func getOrCreateHub(roomID uint) *Hub {
 	hubsMu.Lock()
 	defer hubsMu.Unlock()
@@ -145,6 +156,10 @@ func (h *Hub) run() {
 
 		case reply := <-h.countReq:
 			reply <- len(h.clients)
+
+		case <-h.roomDeleted:
+			msg, _ := json.Marshal(WSMessage{Type: "roomDeleted"})
+			h.send(msg)
 		}
 	}
 }
