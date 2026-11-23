@@ -1,0 +1,5 @@
+.env
+.git
+.claude
+*.txt
+*.md
