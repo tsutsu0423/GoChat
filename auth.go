@@ -92,7 +92,13 @@ func logoutHandler(c *gin.Context) {
 		session := sessions.Default(c)
 		// MaxAge: -1 でブラウザにCookieを今すぐ削除するよう指示する
 		// Clear()だけだと値が空になるだけでCookie自体は残ってしまう
-		session.Options(sessions.Options{MaxAge: -1})
+		session.Options(sessions.Options{
+			Path:     "/",
+			MaxAge:   -1,
+			Secure:   true,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
 		session.Clear()
 		session.Save()
 
