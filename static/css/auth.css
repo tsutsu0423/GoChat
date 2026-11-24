@@ -1,0 +1,120 @@
+/* ログイン、登録画面（色や文字の設定は base.css にある） */
+
+/* カードを画面の真ん中に置く。スマホでも端にくっつかないよう、周りに余白を取る */
+body {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 32px 28px 24px;
+  background: var(--card-bg);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.brand {
+  margin: 0;
+  color: var(--accent);
+  font-size: 22px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.tagline {
+  margin: 4px 0 24px;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.auth-card h1 {
+  margin: 0 0 16px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+/* エラーは入力欄の上に、赤系の帯で出す */
+.form-error {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ラベルと入力欄を縦に並べる */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.auth-form label {
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.auth-form input {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+
+.auth-form input:focus {
+  border-color: var(--accent);
+  background: var(--card-bg);
+}
+
+/* 入力欄の下の小さな説明（文字数のルールなど） */
+.field-hint {
+  margin: -10px 0 16px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.auth-form button {
+  margin-top: 4px;
+  padding: 11px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.auth-form button:hover {
+  background: var(--accent-dark);
+}
+
+.switch {
+  margin: 20px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.switch a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.switch a:hover {
+  text-decoration: underline;
+}

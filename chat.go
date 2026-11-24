@@ -61,7 +61,7 @@ func main() {
 
 	r.Any("/register", registerHandler)
 	r.Any("/login", loginHandler)
-	r.Any("/logout", logoutHandler)
+	r.POST("/logout", logoutHandler) // ログアウトは POST のみ（理由は auth.go の logoutHandler を参照）
 
 	wsupgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,

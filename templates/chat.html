@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{.RoomName}} | DevChat</title>
+    <link rel="stylesheet" href="/static/css/base.css" />
     <link rel="stylesheet" href="/static/css/chat.css" />
   </head>
 
@@ -15,7 +16,9 @@
         <h1 class="room-title" title="{{.RoomName}}">{{.RoomName}}</h1>
         <div class="header-right">
           <span id="online-count">--人</span>
-          <a href="/logout">ログアウト</a>
+          <form method="POST" action="/logout" class="logout-form">
+            <button type="submit">ログアウト</button>
+          </form>
         </div>
       </header>
 

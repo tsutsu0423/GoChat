@@ -1,12 +1,39 @@
 <!DOCTYPE html>
-<html>
-<body>
-  <h1>ログイン</h1>
-  <form method="POST" action="/login">
-    <label>ユーザー名: <input type="text" name="username"></label><br>
-    <label>パスワード: <input type="password" name="password"></label><br>
-    <button type="submit">ログイン</button>
-  </form>
-  <p>アカウントをお持ちでないですか？ <a href="/register">登録</a></p>
-</body>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ログイン | DevChat</title>
+    <link rel="stylesheet" href="/static/css/base.css" />
+    <link rel="stylesheet" href="/static/css/auth.css" />
+  </head>
+
+  <body>
+    <main class="auth-card">
+      <p class="brand">DevChat</p>
+      <p class="tagline">チーム開発のための作業部屋</p>
+
+      <h1>ログイン</h1>
+
+      <!-- エラーがあるときだけ表示する（Go の auth.go から Error が渡される） -->
+      {{if .Error}}
+      <p class="form-error" role="alert">{{.Error}}</p>
+      {{end}}
+
+      <form class="auth-form" method="POST" action="/login">
+        <label for="username">ユーザー名</label>
+        <!-- エラーで戻ったとき、入力したユーザー名を残す（パスワードは安全のため残さない） -->
+        <input id="username" name="username" type="text" value="{{.Username}}"
+               autocomplete="username" required autofocus />
+
+        <label for="password">パスワード</label>
+        <input id="password" name="password" type="password"
+               autocomplete="current-password" required />
+
+        <button type="submit">ログイン</button>
+      </form>
+
+      <p class="switch">アカウントをお持ちでないですか？ <a href="/register">新規登録</a></p>
+    </main>
+  </body>
 </html>

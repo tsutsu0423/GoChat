@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>プロジェクト一覧 | DevChat</title>
+    <link rel="stylesheet" href="/static/css/base.css" />
     <link rel="stylesheet" href="/static/css/chat.css" />
     <link rel="stylesheet" href="/static/css/home.css" />
   </head>
@@ -13,7 +14,9 @@
       <header>
         <h1>プロジェクト一覧</h1>
         <div class="header-right">
-          <a href="/logout">ログアウト</a>
+          <form method="POST" action="/logout" class="logout-form">
+            <button type="submit">ログアウト</button>
+          </form>
         </div>
       </header>
 

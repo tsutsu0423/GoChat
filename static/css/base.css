@@ -1,0 +1,28 @@
+/* 全画面で共通の設定（色、文字、ボックスの計算方法）
+   各画面の HTML で、ほかの CSS より先に読み込む */
+
+:root {
+  --bg: #f4f6f8;
+  --card-bg: #ffffff;
+  --accent: #4a7dff;
+  --accent-dark: #3a63d6;
+  --text: #1f2937;
+  --muted: #8a94a3;
+  --bubble-other: #eef1f5;
+  --bubble-mine: #4a7dff;
+  --border: #e5e8ec;
+  --danger: #e74c3c;
+  --danger-bg: #fdecea;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  font-family: 'Lucida Grande', 'Hiragino Kaku Gothic ProN', 'ヒラギノ角ゴ ProN W3',
+    'Meiryo', 'メイリオ', sans-serif;
+  color: var(--text);
+}

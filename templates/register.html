@@ -1,12 +1,45 @@
 <!DOCTYPE html>
-<html>
-<body>
-  <h1>ユーザー登録</h1>
-  <form method="POST" action="/register">
-    <label>ユーザー名: <input type="text" name="username"></label><br>
-    <label>パスワード: <input type="password" name="password"></label><br>
-    <button type="submit">登録</button>
-  </form>
-  <p>すでにアカウントをお持ちですか？ <a href="/login">ログイン</a></p>
-</body>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>新規登録 | DevChat</title>
+    <link rel="stylesheet" href="/static/css/base.css" />
+    <link rel="stylesheet" href="/static/css/auth.css" />
+  </head>
+
+  <body>
+    <main class="auth-card">
+      <p class="brand">DevChat</p>
+      <p class="tagline">チーム開発のための作業部屋</p>
+
+      <h1>新規登録</h1>
+
+      <!-- エラーがあるときだけ表示する（Go の auth.go から Error が渡される） -->
+      {{if .Error}}
+      <p class="form-error" role="alert">{{.Error}}</p>
+      {{end}}
+
+      <!-- minlength / maxlength はブラウザでの確認。サーバー側（auth.go）でも同じ確認をしている -->
+      <form class="auth-form" method="POST" action="/register">
+        <label for="username">ユーザー名</label>
+        <input id="username" name="username" type="text" value="{{.Username}}"
+               minlength="3" maxlength="20" autocomplete="username" required autofocus />
+        <p class="field-hint">3〜20文字</p>
+
+        <label for="password">パスワード</label>
+        <input id="password" name="password" type="password"
+               minlength="8" autocomplete="new-password" required />
+        <p class="field-hint">8文字以上</p>
+
+        <label for="password_confirm">パスワード（確認）</label>
+        <input id="password_confirm" name="password_confirm" type="password"
+               minlength="8" autocomplete="new-password" required />
+
+        <button type="submit">登録してはじめる</button>
+      </form>
+
+      <p class="switch">すでにアカウントをお持ちですか？ <a href="/login">ログイン</a></p>
+    </main>
+  </body>
 </html>
