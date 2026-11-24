@@ -47,6 +47,14 @@ func main() {
 
 	store := cookie.NewStore([]byte(os.Getenv("session_secret")))
 	r.Use(sessions.Sessions("session", store))
+	
+	store.Options(sessions.Options{
+		Path:     "/",
+		MaxAge:   86400 * 30, // 30日
+		Secure:   true,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	r.Static("/static", "./static")
 
