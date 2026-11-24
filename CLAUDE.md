@@ -33,8 +33,14 @@
 
 ## デプロイ方針（確定）
 
-1. **常時稼働は友人のオンプレサーバー**で行う。Docker Compose で動かし、公開は Cloudflare Tunnel（ポートを開けない、HTTPS が自動で付く、WebSocket と Webhook も通る）にする予定
-   - 決めておくこと：専用ユーザーまたは VM で友人の環境と切り離す、`pg_dump` で毎日バックアップしてサーバーの外にも保存する、停止時の取り決めを友人とする
+1. **常時稼働は友人のオンプレサーバー**で行う（2026-11-24 に公開済み）
+   - 経路：Cloudflare → 友人の既存トンネル → 友人の Nginx Proxy Manager（WebSocket 有効）→ GoChat。cloudflared は GoChat の Compose に入れない
+   - 配置は `/opt/apps/gochat`（友人のアプリは `/opt/apps/<名前>` に置く決まり）。GoChat 専用ユーザーで動かし、友人の環境と分けている
+   - ポートはサーバー専用の `docker-compose.override.yml`（Git 管理外）で LAN 内のアドレスに限定している。リポジトリの `"4001:4001"` は変えなくてよい
+   - SSH は友人の Tailscale 経由で、鍵認証のみ。接続先のアドレスはリポジトリに書かない（公開リポジトリのため）。必要なら本人に聞く
+   - ドメイン、Cloudflare、サーバーの費用は友人持ちで、本人の負担はない
+   - 監視は友人が Uptime Kuma で行っている。止めるときは友人から連絡が来る
+   - 決めておくこと：`pg_dump` の毎日のバックアップと、サーバー外の保存先
 2. **AWS は後から経験用に検証する**：無料プランで Fargate、ALB、RDS を Terraform で構築し、apply と destroy を確認する
    - 無料プランは登録から6か月で終わるので、アカウント登録はアプリが固まってからにする
    - AWS Budgets を最初に設定する。NAT Gateway は使わない
@@ -48,20 +54,26 @@
   - `docker compose up --build` で起動し、http://localhost:4001/register で登録、ログイン、チャットができた
   - 再起動してもデータが残ること（volume `pgdata`）も確認済み
 - 起動前に Docker Desktop を起動しておく必要がある。起動していないと pipe のエラーになる
+- 新しい PC で clone したときは `.env` がない（Git 管理外）。ないと db コンテナが再起動をくり返すので、README の「環境変数」を見て作る
+- 友人のサーバーで本番公開が完了した。2つのタブでのチャット、Cookie の属性を本番で確認済み
+- README を更新した（構成図、バージョン、コンテナ構成、環境変数、WebSocket の仕様、並行処理の設計、本番環境、既知の課題）
+- HTTPS 公開に向けた修正をした
+  - WebSocket を、HTTPS のページでは `wss://` で接続するようにした（`templates/chat.html`）
+  - セッション Cookie に `Secure`、`HttpOnly`、`SameSite=Lax` を付けた（`chat.go`、ログアウト時は `auth.go`）
 
 ## 次にやること
 
-1. 友人のサーバーへの載せ替え（Docker Compose と Cloudflare Tunnel。独自ドメインが必要で、年1,000〜2,000円程度）
-2. README の更新（ルーム機能、レート制限、Docker での起動方法、アーキ図、設計判断3つ）
-3. 小さな穴の修正
+1. DB の定期バックアップ（`pg_dump` を cron で毎日。保存先の候補は Cloudflare R2 の無料枠 10GB）
+2. 小さな穴の修正
    - ログインのエラーが "User not found" と "Invalid password" で分かれていて、ユーザー名の存在が推測できる（`auth.go`）
    - メッセージの長さ上限がない
    - `session_secret` が空でも起動してしまう
    - WebSocket の Origin チェックがない
-4. 部屋一覧の WebSocket 化（今は `templates/home.html` で5秒ごとにポーリングしている）
-5. 核の機能4つと GitHub 連携の実装
-6. 負荷試験、`go test -race` での Hub のテスト、`handleChat` 内の DB 書き込みを Hub から切り離す、履歴のページネーション
-7. AWS での Terraform 検証
+3. 部屋一覧の WebSocket 化（今は `templates/home.html` で5秒ごとにポーリングしている）
+4. 核の機能4つと GitHub 連携の実装
+5. 負荷試験、`go test -race` での Hub のテスト、`handleChat` 内の DB 書き込みを Hub から切り離す、履歴のページネーション
+6. AWS での Terraform 検証
+7. `GoChatブラッシュアップチャット.txt` が公開リポジトリに入っている。公開してよい内容か本人が確認する
 
 ## 未完了の資料
 
