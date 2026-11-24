@@ -112,7 +112,7 @@ func main() {
 		authorized.POST("/rooms", func(c *gin.Context) {
 			name := c.PostForm("name")
 			if name == "" {
-				c.String(http.StatusBadRequest, "部屋名を入力してください")
+				c.String(http.StatusBadRequest, "プロジェクト名を入力してください")
 				return
 			}
 
@@ -121,7 +121,7 @@ func main() {
 
 			result := db.Create(&Room{Name: name, CreatedBy: currentUserID})
 			if result.Error != nil {
-				c.String(http.StatusBadRequest, "その部屋名は既に使用されています")
+				c.String(http.StatusBadRequest, "そのプロジェクト名は既に使用されています")
 				return
 			}
 
@@ -249,6 +249,6 @@ func main() {
 		})
 	}
 
-	fmt.Println("サーバー起動: http://localhost:4001/register")
+	fmt.Println("DevChat 起動: http://localhost:4001/register")
 	r.Run(":4001")
 }

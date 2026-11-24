@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>チャットグループ一覧</title>
+    <title>プロジェクト一覧</title>
     <link rel="stylesheet" href="/static/css/chat.css" />
     <link rel="stylesheet" href="/static/css/home.css" />
   </head>
@@ -11,7 +11,7 @@
   <body>
     <div class="app home">
       <header>
-        <h1>チャットグループ一覧</h1>
+        <h1>プロジェクト一覧</h1>
         <div class="header-right">
           <a href="/logout">ログアウト</a>
         </div>
@@ -19,12 +19,12 @@
 
       <main>
         <form class="create-form" method="POST" action="/rooms">
-          <input type="text" name="name" placeholder="新しいグループ名" required />
+          <input type="text" name="name" placeholder="新規プロジェクト名" required />
           <button type="submit">＋ 作成</button>
         </form>
 
         <ul id="room-list"></ul>
-        <p id="empty-hint" class="empty-hint" hidden>まだグループがありません。上のフォームから作成してください。</p>
+        <p id="empty-hint" class="empty-hint" hidden>プロジェクトがありません。上のフォームから作成してください。</p>
       </main>
     </div>
 

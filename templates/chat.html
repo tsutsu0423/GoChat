@@ -126,7 +126,7 @@
           addMessage(data.id, data.content, data.userID, data.username, data.createdAt);
 
         } else if (data.type === "typing") {
-          // 自分自身のタイピングは表示しない（自分は自分が打っているとわかるから）
+          // 自分自身のタイピングは表示しない
           if (data.userID !== currentUserID) {
             typingUsers[data.userID] = data.username; // キーをuserIDにして上書きで管理
             updateTypingIndicator();
