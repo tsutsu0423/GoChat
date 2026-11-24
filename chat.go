@@ -44,10 +44,11 @@ type RoomView struct {
 
 func main() {
 	r := gin.Default()
+	r.LoadHTMLGlob("templates/*.html") // templates フォルダの HTML を、起動時にテンプレートとして読み込む
 
 	store := cookie.NewStore([]byte(os.Getenv("session_secret")))
 	r.Use(sessions.Sessions("session", store))
-	
+
 	store.Options(sessions.Options{
 		Path:     "/",
 		MaxAge:   86400 * 30, // 30日
@@ -179,7 +180,7 @@ func main() {
 				return
 			}
 
-			http.ServeFile(c.Writer, c.Request, "templates/chat.html")
+			c.HTML(http.StatusOK, "chat.html", gin.H{"RoomName": room.Name})
 		})
 
 		// 部屋ごとのWebSocket接続
