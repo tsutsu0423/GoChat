@@ -89,6 +89,7 @@ GoChat/
 ├── models.go            # DB モデル。init() で DB に接続し AutoMigrate する
 ├── templates/           # HTML（home, chat, login, register, logout）
 ├── static/css/          # CSS（home.css, chat.css）
+├── scripts/             # 運用スクリプト（DB のバックアップと取得）
 ├── Dockerfile           # マルチステージビルド
 ├── docker-compose.yml   # app と db をまとめて起動
 ├── .dockerignore        # .env などをイメージに入れないための設定
@@ -246,6 +247,50 @@ docker compose up -d --build
 - 変更のあった `app` コンテナだけが作り直されます。DB のデータは volume に残ります
 - 入れ替えの間、数秒ほど接続が切れます
 
+### DB のバックアップ
+
+サーバーで毎日バックアップを取り、別の場所にある PC に毎日コピーしています。サーバーが壊れても、データは PC 側に残ります。
+
+```mermaid
+flowchart LR
+    DB["db コンテナ"] -- "pg_dump（毎日 3:00、cron）" --> S["サーバーの ~/backups<br/>14日分を保持"]
+    S -- "scp（毎日、PC 起動時にも）" --> PC["別の場所の PC<br/>全期間を保持"]
+```
+
+| 項目 | 内容 | 理由 |
+|------|------|------|
+| 取得 | `scripts/backup.sh` をサーバーの cron で毎日 3:00 に実行。`pg_dump` を gzip で圧縮して保存 | DB が小さく（数MB）、丸ごと取っても数KB で済むため |
+| 確認 | 圧縮ファイルが壊れていないか、中身が空でないかを毎回確認。書き込み中は `.tmp` にしておく | 壊れたファイルや書きかけのファイルを、正しいバックアップと取り違えないため |
+| サーバーでの保持 | 14日分。古いものは自動で削除 | PC を数日つけなくても、次に起動したときにまとめて取ってこられるため |
+| PC へのコピー | `scripts/pull-backups.ps1` を Windows のタスクスケジューラで毎日実行。未取得のファイルだけをコピー | PC からサーバーへ取りに行く形にすると、PC 側で外から入れる口を開けずに済むため |
+| 権限 | バックアップは本人だけが読めるようにしている（`umask 077`） | 中身にパスワードのハッシュとメッセージが入るため |
+
+### DB の復元
+
+ローカルの Docker で、バックアップから復元して本番と件数が一致することを確認済みです。本番での復元は、次の手順で行います（本番ではまだ実行していません）。
+
+```bash
+cd /opt/apps/gochat
+
+# 1. 念のため、今の状態もバックアップしておく
+~/bin/gochat-backup.sh
+
+# 2. アプリを止める（DB は動かしたまま）
+docker compose stop app
+
+# 3. DB を空にして作り直す
+docker compose exec -T db sh -c 'dropdb -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+
+# 4. バックアップを流し込む（ファイル名は戻したい日時のものにする）
+gzip -dc ~/backups/gochat_YYYYMMDD_HHMM.sql.gz | docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+
+# 5. アプリを起動する
+docker compose start app
+```
+
+- `docker compose down -v` は使わないでください。volume ごと DB が消えます
+- PC 側のバックアップから戻すときは、先に `scp` でサーバーの `~/backups` に送ってから、同じ手順で復元します
+
 ## セキュリティ上の対応
 
 | 対応 | 内容 |
@@ -264,7 +309,6 @@ docker compose up -d --build
 | 高 | WebSocket の Origin チェックがない | `chat.go` |
 | 高 | ログイン失敗のメッセージが「ユーザーがいない」と「パスワード違い」で分かれていて、ユーザー名の存在がわかってしまう | `auth.go` |
 | 中 | メッセージの長さに上限がない | `hub.go` |
-| 中 | DB の定期バックアップをまだ自動化していない | 運用 |
 | 低 | 入室時に履歴を全件送るため、メッセージが増えると重くなる | `chat.go` |
 | 低 | メッセージの DB 保存を Hub の goroutine で行っているため、DB が遅いと部屋全体が遅くなる | `hub.go` |
 

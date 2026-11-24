@@ -65,10 +65,13 @@
 
 2026-11-24 に、最低限のチャットアプリから「DevChat」（チーム開発スペース）に変えるため、コード全体を見直して変更点を洗い出した。この順番で進める。
 
-### 0. DB の定期バックアップ（最初にやる）
+### 0. DB の定期バックアップ（2026-11-25 完了）
 
-- `pg_dump` を cron で毎日。保存先の候補は Cloudflare R2 の無料枠 10GB
-- 3番で DB の形を変えるので、その前に済ませる
+- サーバー：`scripts/backup.sh` のコピーを `~/bin/gochat-backup.sh` に置き、tsutsu ユーザーの crontab で毎日 3:00 に実行。`~/backups/gochat_YYYYMMDD_HHMM.sql.gz` に保存し、14日分を残す。ログは `~/gochat-backup.log`
+- デスクトップPC：`scripts/pull-backups.ps1` のコピー（BOM 付き UTF-8）を `D:\Backups\gochat\` に置き、タスクスケジューラ「GoChat DB Backup Pull」で毎日 12:00 とログオン時に実行。未取得のファイルだけを `D:\Backups\gochat\` にコピーし、全期間を残す。ログは `D:\Backups\gochat\pull.log`
+  - 接続先は `~/.ssh/config` の別名 `gochat-server`（公開リポジトリにアドレスを書かないため）
+- 復元：ローカルの Docker で復元し、本番と件数が一致することを確認済み。本番での手順は README の「DB の復元」にある（本番では未実行）
+- スクリプトを直したら、サーバーと D ドライブのコピーも差し替える（サーバーへは改行コードを LF にして送る）
 
 ### 1. 見た目と言葉
 
