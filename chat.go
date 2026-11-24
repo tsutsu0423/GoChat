@@ -31,7 +31,7 @@ type WSMessage struct {
 	UserID    uint   `json:"userID,omitempty"`    // 送信者のユーザーID
 	Username  string `json:"username,omitempty"`  // 送信者のユーザー名（表示用）
 	Count     int    `json:"count,omitempty"`     // オンライン人数
-	CreatedAt string `json:"createdAt,omitempty"` // 投稿時刻（DBの保存時刻をそのまま文字列で渡す）
+	CreatedAt string `json:"createdAt,omitempty"` // 投稿時刻（RFC 3339 の UTC。表示の形にするのはブラウザ側）
 }
 
 // RoomView はホーム画面（/rooms）がJSONで返す部屋1件分の情報
@@ -237,7 +237,7 @@ func main() {
 					Content:   m.Content,
 					UserID:    m.UserID,
 					Username:  m.Username,
-					CreatedAt: m.CreatedAt.Format("2006/01/02 15:04:05"),
+					CreatedAt: formatWireTime(m.CreatedAt),
 				})
 				conn.WriteMessage(websocket.TextMessage, msg)
 			}

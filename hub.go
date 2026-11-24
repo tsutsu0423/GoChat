@@ -183,6 +183,14 @@ func (h *Hub) broadcastUserCount() {
 	h.send(msg)
 }
 
+// formatWireTime はブラウザに送る時刻を、タイムゾーン付きの形式（RFC 3339。例：2026-11-24T16:03:42Z）にする。
+// 表示用の文字（"2006/01/02 15:04:05" など）にここで変換すると、サーバーのタイムゾーン
+// （本番のコンテナは UTC）のまま表示されてしまう。表示はブラウザ側（chat.html の formatTime）で、
+// 見ている人の PC のタイムゾーンに合わせて行う
+func formatWireTime(t time.Time) string {
+	return t.UTC().Format(time.RFC3339)
+}
+
 // handleChat はチャットメッセージをDBに保存し、全員に配信する
 // （旧 handleMessage 相当の処理をルーム単位に持ち込んだもの）
 func (h *Hub) handleChat(bm BroadcastMsg) {
@@ -195,7 +203,7 @@ func (h *Hub) handleChat(bm BroadcastMsg) {
 		Content:   bm.Content,
 		UserID:    bm.UserID,
 		Username:  bm.Username,
-		CreatedAt: chatMsg.CreatedAt.Format("2006/01/02 15:04:05"),
+		CreatedAt: formatWireTime(chatMsg.CreatedAt),
 	})
 	h.send(msg)
 }

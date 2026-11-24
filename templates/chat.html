@@ -73,6 +73,21 @@
         messagesEl.scrollTop = messagesEl.scrollHeight;
       }
 
+      // サーバーから届いた時刻（例：2026-11-24T16:03:42Z。UTC）を、
+      // この PC のタイムゾーン（日本なら日本時間）の "2026/11/25 01:03:42" に直す
+      function formatTime(iso) {
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return iso; // 読めない形式なら、そのまま出す
+
+        function pad(n) {
+          return String(n).padStart(2, "0"); // 1桁の数字を "05" のように2桁にする
+        }
+        return (
+          d.getFullYear() + "/" + pad(d.getMonth() + 1) + "/" + pad(d.getDate()) + " " +
+          pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds())
+        );
+      }
+
       // メッセージをDOMに追加する関数
       // id: DBのメッセージID, content: 本文, userID: 送信者ID, username: 送信者名, createdAt: 投稿時刻
       function addMessage(id, content, userID, username, createdAt) {
@@ -84,7 +99,7 @@
 
         var meta = document.createElement("div");
         meta.className = "meta";
-        meta.innerText = (isMine ? "自分" : username) + " ・ " + createdAt;
+        meta.innerText = (isMine ? "自分" : username) + " ・ " + formatTime(createdAt);
         div.appendChild(meta);
 
         var row = document.createElement("div");
