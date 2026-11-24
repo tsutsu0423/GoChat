@@ -56,6 +56,18 @@ header h1 {
 .leave-link {
   color: var(--text);
   text-decoration: none;
+  font-size: 13px;
+  flex-shrink: 0; /* プロジェクト名が長くても、退室リンクは縮めない */
+}
+
+/* チャット画面の見出し（プロジェクト名）。退室リンクと右側の間の幅いっぱいを使う */
+header h1.room-title {
+  flex: 1;
+  min-width: 0; /* これがないと、長い名前のときに flex の子要素が縮まず、はみ出す */
+  margin: 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis; /* 入りきらない名前は「…」で省略する（全体はマウスを乗せると見える） */
+  white-space: nowrap;
 }
 
 .leave-link:hover {

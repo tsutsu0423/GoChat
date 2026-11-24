@@ -10,7 +10,9 @@
   <body>
     <div class="app">
       <header>
-        <h1><a href="/" class="leave-link">← 退室</a></h1>
+        <!-- 見出し（h1）は「このページは何か」を表すので、戻るリンクとは分けてプロジェクト名を入れる -->
+        <a href="/" class="leave-link">← 退室</a>
+        <h1 class="room-title" title="{{.RoomName}}">{{.RoomName}}</h1>
         <div class="header-right">
           <span id="online-count">--人</span>
           <a href="/logout">ログアウト</a>
