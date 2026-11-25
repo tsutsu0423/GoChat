@@ -93,10 +93,24 @@
         );
       }
 
-      // メッセージをDOMに追加する関数
-      // id: DBのメッセージID, content: 本文, userID: 送信者ID, username: 送信者名, createdAt: 投稿時刻
-      function addMessage(id, content, userID, username, createdAt) {
-        var isMine = userID === currentUserID;
+      // チャット欄が一番下（最新）まで見えているか。少しの誤差は許す
+      function isNearBottom() {
+        return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 30;
+      }
+
+      // 画面に出ているメッセージの中で一番古い ID（古い履歴を読むときの「ここより前」の目印）
+      var oldestID = 0;
+      // まだ読んでいない古いメッセージがあるか（サーバーの hasMore）
+      var hasMoreHistory = false;
+      // 古い履歴を読んでいる途中か（同じ範囲を何度も頼まないように）
+      var loadingOlder = false;
+      var loadingOlderTimer = null;
+
+      // メッセージ1件分の要素を作る（画面にはまだ入れない）
+      // m: サーバーから届いたメッセージ { id, content, userID, username, createdAt }
+      function createMessageEl(m) {
+        var id = m.id;
+        var isMine = m.userID === currentUserID;
 
         var div = document.createElement("div");
         div.className = "message " + (isMine ? "mine" : "theirs");
@@ -104,7 +118,7 @@
 
         var meta = document.createElement("div");
         meta.className = "meta";
-        meta.innerText = (isMine ? "自分" : username) + " ・ " + formatTime(createdAt);
+        meta.innerText = (isMine ? "自分" : m.username) + " ・ " + formatTime(m.createdAt);
         div.appendChild(meta);
 
         var row = document.createElement("div");
@@ -112,7 +126,7 @@
 
         var bubble = document.createElement("div");
         bubble.className = "bubble";
-        bubble.innerText = content;
+        bubble.innerText = m.content;
         row.appendChild(bubble);
 
         // 自分のメッセージにだけ削除ボタンを追加する
@@ -128,9 +142,84 @@
         }
 
         div.appendChild(row);
-        messagesEl.appendChild(div);
-        scrollToBottom();
+        return div;
       }
+
+      // 同じメッセージがすでに画面にあるか（念のため、二重に表示しないようにする）
+      function hasMessage(id) {
+        return document.querySelector("[data-id='" + id + "']") !== null;
+      }
+
+      // 新しく届いたメッセージを1件、一番下に足す
+      function appendMessage(m) {
+        if (hasMessage(m.id)) return;
+        // 足す前に一番下を見ていたとき、または自分が送ったときだけ下までスクロールする
+        // （上の過去ログを読んでいる最中に、他の人の発言で勝手に一番下へ飛ばさない）
+        var follow = isNearBottom() || m.userID === currentUserID;
+        messagesEl.appendChild(createMessageEl(m));
+        if (follow) scrollToBottom();
+        if (oldestID === 0) oldestID = m.id;
+      }
+
+      // 履歴（古い順に並んだ複数のメッセージ）を、まとめて1つの「入れ物」に作る。
+      // DocumentFragment は画面に出ていない入れ物で、最後に1回だけ画面に入れるので、
+      // 1件ずつ画面に入れるより描画の回数がずっと少なくて済む
+      function buildFragment(messages) {
+        var fragment = document.createDocumentFragment();
+        messages.forEach(function (m) {
+          if (!hasMessage(m.id)) fragment.appendChild(createMessageEl(m));
+        });
+        return fragment;
+      }
+
+      // 履歴を受け取ったあとの共通の処理
+      function afterHistory(data) {
+        if (data.messages && data.messages.length > 0) {
+          oldestID = data.messages[0].id; // 古い順なので、先頭が一番古い
+        }
+        hasMoreHistory = !!data.hasMore;
+        // 履歴が少なくてチャット欄にスクロールバーが出ないと、上にスクロールして読み足せない。
+        // その場合は、続けて古い履歴を自動で読む
+        if (hasMoreHistory && messagesEl.scrollHeight <= messagesEl.clientHeight) {
+          loadOlder();
+        }
+      }
+
+      // 入室したときの履歴：一番下に入れて、最新が見える位置にする
+      function showHistory(data) {
+        messagesEl.appendChild(buildFragment(data.messages || []));
+        scrollToBottom();
+        afterHistory(data);
+      }
+
+      // 上にスクロールして読んだ古い履歴：一番上に入れる。
+      // 上に足すと中身が伸びて、今見ている位置が下にずれるので、伸びた分だけスクロール位置を戻す
+      function showOlderHistory(data) {
+        loadingOlder = false;
+        clearTimeout(loadingOlderTimer);
+        var heightBefore = messagesEl.scrollHeight;
+        messagesEl.insertBefore(buildFragment(data.messages || []), messagesEl.firstChild);
+        messagesEl.scrollTop += messagesEl.scrollHeight - heightBefore;
+        afterHistory(data);
+      }
+
+      // もっと古い履歴をサーバーに頼む
+      function loadOlder() {
+        if (!hasMoreHistory || loadingOlder || oldestID === 0) return;
+        loadingOlder = true;
+        ws.send(JSON.stringify({ type: "loadOlder", before: oldestID }));
+        // 返事が来なかったとき（通信の不調など）に、ずっと「読み込み中」のままにならないよう、
+        // 5秒たったらもう一度頼めるようにする
+        clearTimeout(loadingOlderTimer);
+        loadingOlderTimer = setTimeout(function () {
+          loadingOlder = false;
+        }, 5000);
+      }
+
+      // チャット欄の一番上近くまでスクロールしたら、古い履歴を読む
+      messagesEl.addEventListener("scroll", function () {
+        if (messagesEl.scrollTop < 80) loadOlder();
+      });
 
       // サーバーからメッセージが届いた時の処理
       ws.onmessage = function (msg) {
@@ -148,7 +237,15 @@
           // メッセージが届いたらその人のタイピング表示を消す（送信完了したから）
           delete typingUsers[data.userID];
           updateTypingIndicator();
-          addMessage(data.id, data.content, data.userID, data.username, data.createdAt);
+          appendMessage(data);
+
+        } else if (data.type === "history") {
+          // 入室したときの最新の履歴（まとめて1回で届く）
+          showHistory(data);
+
+        } else if (data.type === "olderHistory") {
+          // 上にスクロールして頼んだ、古い履歴
+          showOlderHistory(data);
 
         } else if (data.type === "typing") {
           // 自分自身のタイピングは表示しない
@@ -204,8 +301,7 @@
       // 入力欄の高さを中身に合わせる（上限は COMPOSER_MAX_HEIGHT）
       function resizeComposer() {
         // 伸ばす前に、チャット欄が一番下まで見えていたかを覚えておく
-        var wasAtBottom =
-          messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 30;
+        var wasAtBottom = isNearBottom();
 
         text.style.height = "auto"; // 一度縮めてから測らないと、文字を消したときに縮まない
         // scrollHeight（中身の高さ）には枠線の上下 1px ずつが入っていないので、2 を足す
