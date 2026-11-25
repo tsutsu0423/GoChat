@@ -32,6 +32,13 @@ type WSMessage struct {
 	Username  string `json:"username,omitempty"`  // 送信者のユーザー名（表示用）
 	Count     int    `json:"count,omitempty"`     // オンライン人数
 	CreatedAt string `json:"createdAt,omitempty"` // 投稿時刻（RFC 3339 の UTC。表示の形にするのはブラウザ側）
+
+	// 履歴（type が "history" か "olderHistory"）で使う
+	Messages []WSMessage `json:"messages,omitempty"` // 古い順に並んだメッセージ
+	HasMore  bool        `json:"hasMore,omitempty"`  // これより古いメッセージがまだあるか
+
+	// ブラウザからの「古い履歴をください」（type が "loadOlder"）で使う。この ID より古いものを返す
+	Before uint `json:"before,omitempty"`
 }
 
 // RoomView はホーム画面（/rooms）がJSONで返す部屋1件分の情報
@@ -244,22 +251,9 @@ func main() {
 			meMsg, _ := json.Marshal(WSMessage{Type: "me", UserID: currentUserID})
 			conn.WriteMessage(websocket.TextMessage, meMsg)
 
-			// ② この部屋の過去のチャット履歴を送る
-			var chatHistory []ChatMessage
-			db.Where("room_id = ?", room.ID).Order("created_at asc").Find(&chatHistory)
-			for _, m := range chatHistory {
-				msg, _ := json.Marshal(WSMessage{
-					Type:      "chat",
-					ID:        m.ID,
-					Content:   m.Content,
-					UserID:    m.UserID,
-					Username:  m.Username,
-					CreatedAt: formatWireTime(m.CreatedAt),
-				})
-				conn.WriteMessage(websocket.TextMessage, msg)
-			}
-
-			// ③ 書き込み・読み取り専用のgoroutineを起動してからHubに登録する
+			// ② 書き込み・読み取り専用のgoroutineを起動してからHubに登録する。
+			// 過去の履歴は、ここではなく Hub が登録のときに送る（hub.go の run の register を参照）。
+			// ここで履歴を送ってから登録すると、その間に他の人が送ったメッセージを取りこぼすため
 			go client.writePump()
 			go client.readPump()
 			hub.register <- client
