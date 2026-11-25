@@ -27,6 +27,8 @@ const (
 	// 2000文字（日本語は1文字最大4バイト）と JSON の改行のエスケープなどを考えても十分な大きさにしている。
 	// 上限がないと、巨大なデータを送りつけてサーバーのメモリを使い切らせる攻撃ができてしまう
 	maxFrameBytes = 32 * 1024
+	// historyPageSize: 履歴を1回に送る件数（入室したとき、上にスクロールしたとき）
+	historyPageSize = 50
 )
 
 // Hub は「1つのチャットルーム」を表す。
@@ -154,6 +156,16 @@ func (h *Hub) run() {
 	for {
 		select {
 		case c := <-h.register:
+			// 部屋に加える前に、最新の履歴を送る。
+			// メッセージの DB 保存（handleChat）もこの goroutine で1つずつ行っているので、
+			// ここで読んだ履歴には「今までに保存されたメッセージ」がすべて入っていて、
+			// これから届くメッセージは、部屋に加えたあとの配信で届く。
+			// そのため、取りこぼしも二重に届くことも起きない
+			// （c.send はまだ空なので、詰まって送れないことはない）
+			select {
+			case c.send <- historyMessage("history", h.id, 0):
+			default:
+			}
 			h.clients[c] = true
 			h.broadcastUserCount()
 
@@ -218,6 +230,52 @@ func (h *Hub) broadcastUserCount() {
 // 見ている人の PC のタイムゾーンに合わせて行う
 func formatWireTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
+}
+
+// loadHistory は、部屋のメッセージを新しいほうから historyPageSize 件読み、古い順に並べて返す。
+// beforeID が 0 なら最新から、0 以外ならその ID より古いものを読む（上にスクロールしたとき）。
+// hasMore は、それよりさらに古いメッセージが残っているか
+func loadHistory(roomID, beforeID uint) (msgs []WSMessage, hasMore bool) {
+	query := db.Where("room_id = ?", roomID)
+	if beforeID > 0 {
+		query = query.Where("id < ?", beforeID)
+	}
+
+	// 1件多く読んで、読めたら「まだ古いものがある」とわかる（件数を数える問い合わせを別にしなくて済む）。
+	// 並べ替えは created_at ではなく id で行う。id は保存した順に増えるので順番は同じで、
+	// 「この ID より古いもの」という続きの読み方と、models.go の索引（room_id, id）をそのまま使える
+	var rows []ChatMessage
+	if err := query.Order("id desc").Limit(historyPageSize + 1).Find(&rows).Error; err != nil {
+		log.Printf("履歴を読めませんでした: %v", err)
+		return []WSMessage{}, false
+	}
+
+	if len(rows) > historyPageSize {
+		hasMore = true
+		rows = rows[:historyPageSize]
+	}
+
+	// 新しい順に読んだので、後ろから詰めて古い順にする（画面では上が古い）
+	msgs = make([]WSMessage, len(rows))
+	for i, m := range rows {
+		msgs[len(rows)-1-i] = WSMessage{
+			Type:      "chat",
+			ID:        m.ID,
+			Content:   m.Content,
+			UserID:    m.UserID,
+			Username:  m.Username,
+			CreatedAt: formatWireTime(m.CreatedAt),
+		}
+	}
+	return msgs, hasMore
+}
+
+// historyMessage は、履歴をまとめて1つのメッセージにする（1件ずつ送ると、ブラウザが1件ごとに描画して重くなる）。
+// msgType は、入室したときが "history"、上にスクロールして古いものを読んだときが "olderHistory"
+func historyMessage(msgType string, roomID, beforeID uint) []byte {
+	msgs, hasMore := loadHistory(roomID, beforeID)
+	b, _ := json.Marshal(WSMessage{Type: msgType, Messages: msgs, HasMore: hasMore})
+	return b
 }
 
 // handleChat はチャットメッセージをDBに保存し、全員に配信する
@@ -314,6 +372,15 @@ func (c *Client) readPump() {
 			c.hub.deleteReq <- DeleteReq{MsgID: incoming.ID, UserID: c.userID}
 		case "typing", "stopTyping":
 			c.hub.typingReq <- TypingReq{Kind: incoming.Type, UserID: c.userID, Username: c.username}
+		case "loadOlder":
+			// 上にスクロールしたときの「もっと古い履歴をください」。
+			// 古いメッセージは配信と重ならないので、Hub の goroutine ではなくここで DB から読み、
+			// 部屋全体を待たせないようにする。送るのは notify と同じく Hub に任せる
+			if incoming.Before == 0 {
+				continue
+			}
+			msg := historyMessage("olderHistory", c.hub.id, incoming.Before)
+			c.hub.direct <- DirectMsg{Client: c, Msg: msg}
 		}
 	}
 }
