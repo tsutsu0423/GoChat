@@ -4,8 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{.RoomName}} | DevChat</title>
-    <link rel="stylesheet" href="/static/css/base.css" />
-    <link rel="stylesheet" href="/static/css/chat.css" />
+    <!-- ?v= は版の番号。番号を変えると、ブラウザは「別のファイル」とみなして必ず読み直す
+         （以前の版の CSS を覚えているブラウザでも、新しい CSS が使われるようにするため） -->
+    <link rel="stylesheet" href="/static/css/base.css?v=2" />
+    <link rel="stylesheet" href="/static/css/chat.css?v=2" />
   </head>
 
   <body>
