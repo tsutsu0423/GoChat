@@ -188,8 +188,22 @@ header a:hover {
   font-size: 12px;
 }
 
+/* 送信できなかった理由（文字数オーバー、連投など） */
+#composer-notice {
+  min-height: 0;
+  margin: 0;
+  padding: 0 16px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+#composer-notice:not(:empty) {
+  padding-bottom: 6px;
+}
+
 form#composer {
   display: flex;
+  align-items: flex-end; /* 入力欄が複数行に伸びても、送信ボタンは下にそろえる */
   gap: 8px;
   padding: 12px 14px;
   border-top: 1px solid var(--border);
@@ -204,6 +218,12 @@ form#composer {
   font-size: 13.5px;
   outline: none;
   color: var(--text);
+  /* textarea 用の設定 */
+  font-family: inherit; /* textarea は親の文字の種類を引き継がないので、明示的に引き継ぐ */
+  line-height: 1.4;
+  resize: none; /* 右下のつまみでの手動の大きさ変更はさせない（JS で自動で伸ばす） */
+  max-height: 140px; /* 伸びるのは約6行まで。それ以上は中でスクロールする */
+  overflow-y: auto;
 }
 
 #text:focus {

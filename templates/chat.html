@@ -24,9 +24,12 @@
 
       <div id="messages"></div>
       <p id="typing-indicator"></p>
+      <!-- 送信できなかったときの理由を出す場所（role="status" で読み上げソフトにも伝わる） -->
+      <p id="composer-notice" role="status"></p>
 
       <form id="composer">
-        <input placeholder="メッセージを入力..." id="text" type="text" autocomplete="off" />
+        <!-- 複数行で書けるよう textarea にする。rows="1" で最初は1行の高さ（入力に合わせて伸びる） -->
+        <textarea placeholder="メッセージを入力（Shift+Enter で改行）" id="text" rows="1"></textarea>
         <button type="submit" id="send-btn" aria-label="送信">➤</button>
       </form>
     </div>
@@ -161,6 +164,10 @@
           var el = document.querySelector("[data-id='" + data.id + "']");
           if (el) el.remove();
 
+        } else if (data.type === "error") {
+          // サーバーが受け付けなかったときの理由（文字数オーバー、連投など）
+          showNotice(data.content);
+
         } else if (data.type === "roomDeleted") {
           // 作成者がこの部屋を削除した → 全員をホームへ戻す
           alert("この部屋は削除されました");
@@ -169,8 +176,74 @@
         }
       };
 
+      var text = document.getElementById("text");
+      var noticeEl = document.getElementById("composer-notice");
+
+      // サーバー（hub.go）と同じルール。ここで先に確認して、送れないときは入力を消さずに残す
+      var MAX_MESSAGE_LEN = 2000; // hub.go の maxMessageLen と同じ値にする
+      var MIN_SEND_INTERVAL = 500; // hub.go の chatMinInterval と同じ（ミリ秒）
+      var lastSentAt = 0;
+
+      // 送信できなかった理由を、入力欄の上に4秒だけ出す
+      var noticeTimer = null;
+      function showNotice(message) {
+        noticeEl.innerText = message;
+        clearTimeout(noticeTimer);
+        noticeTimer = setTimeout(function () {
+          noticeEl.innerText = "";
+        }, 4000);
+      }
+
+      // 入力欄の高さを中身に合わせる（最大の高さは CSS の max-height で決める）
+      function resizeComposer() {
+        text.style.height = "auto"; // 一度縮めてから測らないと、文字を消したときに縮まない
+        text.style.height = text.scrollHeight + "px";
+      }
+
+      // メッセージを送る（送信ボタンと Enter キーの両方から呼ぶ）
+      function sendMessage() {
+        var content = text.value;
+
+        // 空白や改行だけなら送らない
+        if (content.trim() === "") return;
+
+        // Array.from で1文字ずつに分けて数える（.length だと絵文字を2文字と数えてしまう）
+        if (Array.from(content).length > MAX_MESSAGE_LEN) {
+          showNotice("メッセージは" + MAX_MESSAGE_LEN + "文字以内にしてください");
+          return;
+        }
+
+        var now = Date.now();
+        if (now - lastSentAt < MIN_SEND_INTERVAL) {
+          showNotice("送信が速すぎます。少し待ってから送ってください");
+          return;
+        }
+        lastSentAt = now;
+
+        // 送信したら即座に stopTyping → タイマーが残っていてもキャンセル
+        clearTimeout(typingTimer);
+        ws.send(JSON.stringify({ type: "stopTyping" }));
+        ws.send(JSON.stringify({ type: "chat", content: content }));
+        text.value = "";
+        resizeComposer();
+      }
+
+      // Enter で送信、Shift+Enter で改行
+      text.addEventListener("keydown", function (e) {
+        if (e.key !== "Enter" || e.shiftKey) return; // Shift+Enter はそのまま改行させる
+
+        // 日本語入力で漢字に変換している途中の Enter（変換の確定）では送らない。
+        // isComposing は変換中かどうか。keyCode 229 は、一部のブラウザで変換中の Enter に付く値
+        if (e.isComposing || e.keyCode === 229) return;
+
+        e.preventDefault(); // textarea に改行が入らないようにする
+        sendMessage();
+      });
+
       // inputイベント: テキストが変化するたびに発火（keypress より幅広く検知できる）
       text.addEventListener("input", function () {
+        resizeComposer();
+
         // typing を送信（サーバーが全員に中継する）
         ws.send(JSON.stringify({ type: "typing" }));
 
@@ -182,15 +255,10 @@
         }, 2000);
       });
 
+      // 送信ボタン（フォームの submit）
       document.getElementById("composer").addEventListener("submit", function (e) {
-        e.preventDefault();
-        if (text.value === "") return;
-
-        // 送信したら即座に stopTyping → タイマーが残っていてもキャンセル
-        clearTimeout(typingTimer);
-        ws.send(JSON.stringify({ type: "stopTyping" }));
-        ws.send(JSON.stringify({ type: "chat", content: text.value }));
-        text.value = "";
+        e.preventDefault(); // ページを読み込み直さないようにする
+        sendMessage();
       });
     </script>
   </body>

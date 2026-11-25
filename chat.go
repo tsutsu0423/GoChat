@@ -46,7 +46,18 @@ func main() {
 	r := gin.Default()
 	r.LoadHTMLGlob("templates/*.html") // templates フォルダの HTML を、起動時にテンプレートとして読み込む
 
-	store := cookie.NewStore([]byte(os.Getenv("session_secret")))
+	// session_secret はログイン状態の Cookie に署名する鍵。空のまま起動すると、
+	// 誰でも同じ「空の鍵」で Cookie を作れてしまい、他人になりすませる。
+	// 設定忘れに気づけるよう、空なら起動しない
+	sessionSecret := os.Getenv("session_secret")
+	if sessionSecret == "" {
+		log.Fatal("環境変数 session_secret が設定されていません。.env を確認してください")
+	}
+	if len(sessionSecret) < 32 {
+		log.Println("警告: session_secret が短すぎます。32文字以上のランダムな文字列にしてください")
+	}
+
+	store := cookie.NewStore([]byte(sessionSecret))
 	r.Use(sessions.Sessions("session", store))
 
 	store.Options(sessions.Options{

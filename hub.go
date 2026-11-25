@@ -2,9 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 )
@@ -18,6 +21,12 @@ const (
 	writeWait = 10 * time.Second
 	// chatMinInterval: 1接続からのチャット送信を受け付ける最短間隔（連投・スパム対策）
 	chatMinInterval = 500 * time.Millisecond
+	// maxMessageLen: 1メッセージの最大文字数（chat.html の MAX_MESSAGE_LEN と同じ値にする）
+	maxMessageLen = 2000
+	// maxFrameBytes: 1回に受け取るデータの最大サイズ。これを超えるとライブラリが接続を切る。
+	// 2000文字（日本語は1文字最大4バイト）と JSON の改行のエスケープなどを考えても十分な大きさにしている。
+	// 上限がないと、巨大なデータを送りつけてサーバーのメモリを使い切らせる攻撃ができてしまう
+	maxFrameBytes = 32 * 1024
 )
 
 // Hub は「1つのチャットルーム」を表す。
@@ -36,6 +45,15 @@ type Hub struct {
 	typingReq   chan TypingReq
 	countReq    chan chan int
 	roomDeleted chan struct{}
+	direct      chan DirectMsg
+}
+
+// DirectMsg は、部屋の全員ではなく特定の1接続だけに送るメッセージ（エラーの通知など）。
+// readPump から c.send に直接書き込むと、Hub が c.send を close した直後に書き込んで
+// panic することがあるので、他のイベントと同じく Hub の goroutine を通して送る
+type DirectMsg struct {
+	Client *Client
+	Msg    []byte
 }
 
 // DeleteReq はメッセージ削除リクエストをHubに伝えるためのデータ
@@ -84,6 +102,7 @@ func newHub(roomID uint) *Hub {
 		typingReq:   make(chan TypingReq),
 		countReq:    make(chan chan int),
 		roomDeleted: make(chan struct{}),
+		direct:      make(chan DirectMsg),
 	}
 }
 
@@ -160,6 +179,16 @@ func (h *Hub) run() {
 		case <-h.roomDeleted:
 			msg, _ := json.Marshal(WSMessage{Type: "roomDeleted"})
 			h.send(msg)
+
+		case dm := <-h.direct:
+			// まだ部屋にいる（c.send が close されていない）ときだけ送る。
+			// 送信キューが詰まっていたら、通知は諦めて捨てる（エラーの通知のために全体を止めない）
+			if _, ok := h.clients[dm.Client]; ok {
+				select {
+				case dm.Client.send <- dm.Msg:
+				default:
+				}
+			}
 		}
 	}
 }
@@ -242,6 +271,7 @@ func (c *Client) readPump() {
 		c.conn.Close()
 	}()
 
+	c.conn.SetReadLimit(maxFrameBytes)
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.conn.SetPongHandler(func(string) error {
 		c.conn.SetReadDeadline(time.Now().Add(pongWait))
@@ -261,9 +291,21 @@ func (c *Client) readPump() {
 
 		switch incoming.Type {
 		case "chat":
-			// 連投スパム対策: 前回の送信からchatMinIntervalが経っていなければ
-			// 黙って無視する（DBへの保存も全員への配信もしない）
+			// ブラウザ側でも同じ確認をしているが、ブラウザの確認は開発者ツールで簡単に外せるので、
+			// サーバーでも必ず確認する。受け付けないときは、DBへの保存も全員への配信もしない
+
+			// 空白や改行だけのメッセージは、何も言わずに無視する
+			if strings.TrimSpace(incoming.Content) == "" {
+				continue
+			}
+			// 文字数は utf8.RuneCountInString で数える（len だと日本語1文字を3と数えてしまう）
+			if utf8.RuneCountInString(incoming.Content) > maxMessageLen {
+				c.notify(fmt.Sprintf("メッセージは%d文字以内にしてください", maxMessageLen))
+				continue
+			}
+			// 連投スパム対策: 前回の送信からchatMinIntervalが経っていなければ受け付けない
 			if time.Since(c.lastChatAt) < chatMinInterval {
+				c.notify("送信が速すぎます。少し待ってから送ってください")
 				continue
 			}
 			c.lastChatAt = time.Now()
@@ -274,6 +316,13 @@ func (c *Client) readPump() {
 			c.hub.typingReq <- TypingReq{Kind: incoming.Type, UserID: c.userID, Username: c.username}
 		}
 	}
+}
+
+// notify は、この接続の本人にだけエラーなどの通知を送る（type: "error"）。
+// 送るのは Hub の goroutine に任せる（DirectMsg の説明を参照）
+func (c *Client) notify(text string) {
+	msg, _ := json.Marshal(WSMessage{Type: "error", Content: text})
+	c.hub.direct <- DirectMsg{Client: c, Msg: msg}
 }
 
 // writePump はこの接続への書き込みだけを行う専用goroutine。
