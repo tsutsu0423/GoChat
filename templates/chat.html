@@ -194,10 +194,25 @@
         }, 4000);
       }
 
-      // 入力欄の高さを中身に合わせる（最大の高さは CSS の max-height で決める）
+      // 入力欄が伸びる高さの上限（px）。約10行分。それ以上は入力欄の中でスクロールする
+      // 1行 18.9px（文字 13.5px × 行の高さ 1.4）× 10行 ＝ 189px ＋ 上下の余白 20px ＋ 枠線 2px ＝ 211px
+      // chat.css の #text の max-height と同じ値にする
+      var COMPOSER_MAX_HEIGHT = 211;
+
+      // 入力欄の高さを中身に合わせる（上限は COMPOSER_MAX_HEIGHT）
       function resizeComposer() {
+        // 伸ばす前に、チャット欄が一番下まで見えていたかを覚えておく
+        var wasAtBottom =
+          messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 30;
+
         text.style.height = "auto"; // 一度縮めてから測らないと、文字を消したときに縮まない
-        text.style.height = text.scrollHeight + "px";
+        // scrollHeight（中身の高さ）には枠線の上下 1px ずつが入っていないので、2 を足す
+        // （足さないと枠線の分だけ足りず、最後の行が少し隠れてスクロールが出る）
+        text.style.height = Math.min(text.scrollHeight + 2, COMPOSER_MAX_HEIGHT) + "px";
+
+        // 入力欄が伸びるとチャット欄が縮むので、最新のメッセージが隠れないよう下に合わせ直す
+        // （上の過去ログを読んでいる最中なら、勝手に動かさない）
+        if (wasAtBottom) scrollToBottom();
       }
 
       // メッセージを送る（送信ボタンと Enter キーの両方から呼ぶ）

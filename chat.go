@@ -68,7 +68,13 @@ func main() {
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	r.Static("/static", "./static")
+	// CSS などの静的ファイル。ブラウザが古い CSS を覚えたまま使い続けないよう、
+	// 毎回「新しくなっていないか」をサーバーに確認させる（no-cache）。
+	// 変わっていなければ 304（中身なし）が返るだけなので、通信量はほとんど増えない
+	static := r.Group("/static", func(c *gin.Context) {
+		c.Header("Cache-Control", "no-cache")
+	})
+	static.Static("/", "./static")
 
 	r.Any("/register", registerHandler)
 	r.Any("/login", loginHandler)

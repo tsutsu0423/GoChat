@@ -8,8 +8,12 @@ body {
 }
 
 .app {
-  width: 460px;
+  /* 画面が 460px より狭いとき（スマホなど）は、画面の幅に合わせて縮める（右端が切れないように） */
+  width: min(460px, 100%);
   height: 100vh;
+  /* スマホでは 100vh がアドレスバーの分だけ画面より高くなり、下の入力欄が隠れることがある。
+     対応しているブラウザでは、実際に見えている高さ（dvh）を使う */
+  height: 100dvh;
   max-height: 720px;
   display: flex;
   flex-direction: column;
@@ -109,6 +113,7 @@ header a:hover {
 
 #messages {
   flex: 1;
+  min-height: 0; /* 入力欄が伸びたときに、チャット欄のほうが縮むようにする */
   overflow-y: auto;
   padding: 16px;
   display: flex;
@@ -212,7 +217,6 @@ form#composer {
 #text {
   flex: 1;
   padding: 10px 14px;
-  border-radius: 20px;
   border: 1px solid var(--border);
   background: var(--bg);
   font-size: 13.5px;
@@ -222,8 +226,11 @@ form#composer {
   font-family: inherit; /* textarea は親の文字の種類を引き継がないので、明示的に引き継ぐ */
   line-height: 1.4;
   resize: none; /* 右下のつまみでの手動の大きさ変更はさせない（JS で自動で伸ばす） */
-  max-height: 140px; /* 伸びるのは約6行まで。それ以上は中でスクロールする */
+  /* 伸びるのは約10行分（211px）まで。それ以上は中でスクロールする
+     （chat.html の COMPOSER_MAX_HEIGHT と同じ値にする） */
+  max-height: 211px;
   overflow-y: auto;
+  border-radius: 14px; /* 複数行に伸びたときに、角の丸みが大きすぎて文字にかからないようにする */
 }
 
 #text:focus {
