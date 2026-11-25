@@ -175,14 +175,18 @@ docker compose logs -f app
 | 向き | `type` | 内容 |
 |------|--------|------|
 | サーバー → ブラウザ | `me` | 自分のユーザー ID（接続直後に1回） |
-| サーバー → ブラウザ | `chat` | メッセージ（ID、本文、送信者、投稿時刻）。接続直後は履歴をまとめて送る |
+| サーバー → ブラウザ | `history` | 接続直後の履歴。新しい50件を古い順の配列（`messages`）でまとめて送り、さらに古いものがあれば `hasMore` が true |
+| サーバー → ブラウザ | `olderHistory` | `loadOlder` への返事。形は `history` と同じ |
+| サーバー → ブラウザ | `chat` | 新しいメッセージ（ID、本文、送信者、投稿時刻。時刻は RFC 3339 の UTC） |
 | サーバー → ブラウザ | `userCount` | 在室人数 |
 | サーバー → ブラウザ | `typing` / `stopTyping` | だれが入力中か |
 | サーバー → ブラウザ | `delete` | 削除されたメッセージの ID |
+| サーバー → ブラウザ | `error` | 送信を受け付けなかった理由（文字数オーバー、連投）。本人にだけ送る |
 | サーバー → ブラウザ | `roomDeleted` | 部屋が削除された |
-| ブラウザ → サーバー | `chat` | 送信する本文 |
+| ブラウザ → サーバー | `chat` | 送信する本文（空白だけは無視、2000文字まで） |
 | ブラウザ → サーバー | `delete` | 削除したいメッセージの ID |
 | ブラウザ → サーバー | `typing` / `stopTyping` | 入力の開始と終了 |
+| ブラウザ → サーバー | `loadOlder` | 上にスクロールしたときに送る。`before` の ID より古いメッセージを50件ください |
 
 ## データモデル
 
@@ -192,7 +196,7 @@ GORM の `AutoMigrate` が起動時にテーブルを作ります。どのテー
 |---------|-------|------|
 | `users` | `username`、`password`（bcrypt ハッシュ） | `username` は一意 |
 | `rooms` | `name`、`created_by`（ユーザー ID） | `name` は一意 |
-| `chat_messages` | `content`、`user_id`、`username`、`room_id` | なし |
+| `chat_messages` | `content`、`user_id`、`username`、`room_id` | 履歴を速く読むためのインデックス（`room_id`, `id`） |
 
 ## 並行処理の設計
 
@@ -205,7 +209,7 @@ flowchart TB
     subgraph Room["部屋ごと"]
         H["Hub.run() goroutine<br/>clients マップを持つ唯一の goroutine"]
     end
-    R -- "register / unregister / broadcast<br/>deleteReq / typingReq" --> H
+    R -- "register / unregister / broadcast<br/>deleteReq / typingReq / direct" --> H
     H -- "send チャネル（バッファ 256）" --> W
     HTTP["HTTP ハンドラ"] -- "countReq / roomDeleted" --> H
 ```
@@ -215,7 +219,8 @@ flowchart TB
 3. **1接続に読み取りと書き込みの goroutine を1本ずつ**：gorilla/websocket は同じ接続への同時書き込みを許さないので、書き込みは `writePump` だけが行います
 4. **ping/pong による死活確認**：54 秒ごとに ping を送り、60 秒応答がなければ切断します。スリープや回線断で残った接続を片付けるためです
 5. **遅いクライアントの切断**：送信キューが満杯の接続は、待たずに切断します。1人が遅いせいで部屋全体が止まらないようにするためです
-6. **レート制限**：1接続あたり 0.5 秒に1通までで、超えた分は捨てます
+6. **レート制限**：1接続あたり 0.5 秒に1通までです。超えた分は保存も配信もせず、本人にだけ `error` で知らせます
+7. **入室時の取りこぼし防止**：履歴は Hub の goroutine が登録の処理の中で読み、送ってから在室者に加えます。メッセージの DB 保存も同じ goroutine で1つずつ行うので、新しいメッセージは「履歴」か「配信」のどちらか一方で必ず届きます（取りこぼしも二重もありません）
 
 ## 本番環境
 
@@ -305,11 +310,8 @@ docker compose start app
 
 | 優先度 | 内容 | 場所 |
 |-------|------|------|
-| 高 | `session_secret` が空でも起動してしまう | `chat.go` |
-| 高 | WebSocket の Origin チェックがない | `chat.go` |
-| 高 | ログイン失敗のメッセージが「ユーザーがいない」と「パスワード違い」で分かれていて、ユーザー名の存在がわかってしまう | `auth.go` |
-| 中 | メッセージの長さに上限がない | `hub.go` |
-| 低 | 入室時に履歴を全件送るため、メッセージが増えると重くなる | `chat.go` |
+| 高 | 部屋にメンバーの区別がなく、ログインした全員がすべての部屋に入れる | `chat.go`、`models.go` |
+| 中 | WebSocket が切れても自動で再接続しない | `templates/chat.html` |
 | 低 | メッセージの DB 保存を Hub の goroutine で行っているため、DB が遅いと部屋全体が遅くなる | `hub.go` |
 
 ## 今後の予定
