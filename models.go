@@ -46,4 +46,12 @@ func init() {
 
 	// structの定義に合わせてDBテーブルを自動作成・更新
 	db.AutoMigrate(&User{}, &Room{}, &ChatMessage{})
+
+	// 履歴は「この部屋の、ID が○○より小さいメッセージを新しい順に50件」という形で読む（hub.go の loadHistory）。
+	// その検索を速くするため、「部屋ID＋ID」の順に並べた索引（インデックス）を作る。
+	// 索引がないと、メッセージが増えるほど表の全行を調べることになり遅くなる。
+	// IF NOT EXISTS なので、2回目以降の起動では何もしない
+	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_room_id_id ON chat_messages (room_id, id)").Error; err != nil {
+		log.Printf("インデックスを作れませんでした: %v", err)
+	}
 }
