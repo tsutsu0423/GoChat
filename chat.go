@@ -260,6 +260,6 @@ func main() {
 		})
 	}
 
-	fmt.Println("DevChat 起動: http://localhost:4001/register")
+	fmt.Println("DevChat 起動: http://localhost:4001/")
 	r.Run(":4001")
 }
